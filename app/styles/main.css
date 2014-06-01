@@ -1,0 +1,38 @@
+body {
+    height: 240px;
+    width: 360px;
+    padding: 6px;
+    font-family: 'FiraSans';
+}
+
+h1 {
+  color: #222;
+  font-weight: normal;
+  -webkit-margin-before: 0;
+  -webkit-margin-after: 0;
+}
+
+input {
+  font-size: 16px;
+  width: 100%;
+}
+
+.result h2 {
+  -webkit-margin-after: 0;
+}
+.result p {
+  -webkit-margin-before: 0;
+  margin-bottom: 1em;
+}
+
+.result h2 {
+  font-size: 16px;
+}
+
+.result a {
+  text-decoration: none;
+}
+
+.result p {
+  font-size: 14px;
+}
