@@ -1,5 +1,5 @@
 {
-    "name": "Open Scholar",
+    "name": "Scholar Ninja",
     "version": "0.0.2",
     "manifest_version": 2,
     "description": "Distributed open index of academic publications",
@@ -19,7 +19,7 @@
             "19": "images/icon-19.png",
             "38": "images/icon-38.png"
         },
-        "default_title": "Open Scholar",
+        "default_title": "Scholar Ninja",
         "default_popup": "popup.html"
     },
     "content_scripts": [
