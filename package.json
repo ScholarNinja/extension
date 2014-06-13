@@ -1,9 +1,12 @@
 {
-  "name": "openscholar",
+  "name": "scholarninja",
   "version": "0.0.1",
   "dependencies": {
     "lunr": "*",
-    "jquery": "*"
+    "jquery": "*",
+    "crypto-js": "~3.1.2",
+    "peerjs": "~0.3.8",
+    "underscore": "*"
   },
   "devDependencies": {
     "browserify": "*",
@@ -23,6 +26,7 @@
     "grunt-usemin": "~0.1.10",
     "grunt-mocha": "~0.4.0",
     "grunt-svgmin": "~0.2.0",
+    "browserify-shim": "~3.5.0",
     "grunt-concurrent": "~0.4.0",
     "load-grunt-tasks": "~0.2.0",
     "time-grunt": "~0.2.0",
@@ -32,5 +36,10 @@
   },
   "engines": {
     "node": ">=0.8.0"
+  },
+  "browserify-shim": "./shims.js",
+  "browser": {
+    "webrtc-chord": "./app/scripts/vendor/webrtc-chord.js",
+    "peerjs": "./app/scripts/vendor/peer.js"
   }
 }

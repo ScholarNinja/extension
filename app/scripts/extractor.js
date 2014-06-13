@@ -2,6 +2,7 @@
 /*jshint -W061 */
 
 var $ = require('jquery');
+var SHA256 = require('crypto-js/sha256');
 
 var rules = {
     'PLOS': {
@@ -9,7 +10,8 @@ var rules = {
         journal: '$(".logo:first img").attr("alt")',
         title: '$(".header h1").text().trim()',
         authors: '$(".authors:first .person").map(function(e) { return $(this).children().remove().end().text().trim().replace(/[\\s,]+$/g, ""); }).get().join(", ")',
-        article: '$(".article").text()',
+        fulltext: '$(".article").html()',
+        abstract: '$(".abstract").text()',
         year: '$(".date-doi-line li:first").text().split(", ")[1]',
         doi: '$(".header > ul.date-doi-line > li:nth-child(2)").text()'
     },
@@ -18,7 +20,8 @@ var rules = {
         journal: '"eLife"',
         title: '$(".page-title").text()',
         authors: '$(".elife-article-author-item").map(function() { return $(this).text() }).get().join(", ")',
-        article: '$(".pane-content:has(#main-text)").text()',
+        fulltext: '$("#main-text").html() + $("#references").html()',
+        abstract: '$("#abstract").text()',
         year: '$(".highwire-doi-epubdate-data").text().split(", ")[1]',
         doi: '"DOI: " + $(".elife-doi-doi").text().replace("http://dx.doi.org/", "")'
     }
@@ -38,19 +41,35 @@ var supported = function supported(url) {
 };
 
 var extract = function extract(document, rule) {
-    console.log('Extracting ' + document.URL + 'with '+ rule);
+    console.log('Extracting ' + document.URL + ' with '+ rule);
     rule = rules[rule];
     var message = {
-        id: document.URL,
         journal: eval(rule.journal),
         title: eval(rule.title),
         authors: eval(rule.authors),
-        article: eval(rule.article),
+        abstract: eval(rule.abstract),
         year: eval(rule.year),
         doi: eval(rule.doi),
-        url: document.URL,
-        method: 'POST',
+        url: document.URL
     };
+
+    if (message.doi) {
+        message.id = message.doi;
+    }
+    else {
+        message.id = SHA256(message);
+    }
+
+    message.fulltext = eval(rule.fulltext);
+    message.method = 'POST';
+    message.links = $(message.fulltext).find('a').
+        map(function(i,e) {
+            var url = e.getAttribute('href');
+            if(url.match(/^[^#]+/)) {
+                return url;
+            }
+        }
+    ).get();
     return message;
 };
 

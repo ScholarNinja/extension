@@ -111,7 +111,8 @@ module.exports = function (grunt) {
                 jshintrc: '.jshintrc',
                 reporter: require('jshint-stylish'),
                 ignores: [
-                    '<%= config.app %>/scripts/browserified/*'
+                    '<%= config.app %>/scripts/browserified/*',
+                    '<%= config.app %>/scripts/webrtc-chord.js'
                 ]
             },
             all: [
@@ -299,6 +300,9 @@ module.exports = function (grunt) {
                     '<%= config.app %>/scripts/browserified/popup.js': ['app/scripts/popup.js'],
                     '<%= config.app %>/scripts/browserified/background.js': ['app/scripts/background.js']
                 },
+                options: {
+                    transform: ['browserify-shim']
+                }
             },
             dist: {
                 files: {

@@ -1,0 +1,20 @@
+TODO
+
+MVP
+
+When you install the Chrome Extension, you should be able to connect to the
+network of nodes and assume membership of network, and be able to search for
+keywords immediately.
+
+- Recovering from browser exit
+  - Index is not restored yet
+- Storing documents by docId instead of URL (hash of content)
+- Ability to become node for certain keywords (DHT)
+  - Find node is responsible for keyword - store in local index
+  - If not, find closest node and send to their index
+  - Abstract travels with document for keyword highlighting
+- Node bootstrapping
+
+MAYBE
+
+Look at https://github.com/fergiemcdowall/forage/issues/32
