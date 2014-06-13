@@ -21,6 +21,8 @@ if(rule) {
 var $ = require('jquery');
 var SHA256 = require('crypto-js/sha256');
 
+var linksRegex = /^https?:\/\/([^.]*\.)?(dx.doi.org|github.com|bitbucket.(com|org)|r-project.org)/;
+
 var rules = {
     'PLOS': {
         url: /plos.*\.org\/article\/info/,
@@ -30,7 +32,7 @@ var rules = {
         fulltext: '$(".article").html()',
         abstract: '$(".abstract").text()',
         year: '$(".date-doi-line li:first").text().split(", ")[1]',
-        doi: '$(".header > ul.date-doi-line > li:nth-child(2)").text()'
+        doi: '$(".header > ul.date-doi-line > li:nth-child(2)").text().substr(5)'
     },
     'eLife': {
         url: /elifesciences\.org\/content\//,
@@ -40,7 +42,7 @@ var rules = {
         fulltext: '$("#main-text").html() + $("#references").html()',
         abstract: '$("#abstract").text()',
         year: '$(".highwire-doi-epubdate-data").text().split(", ")[1]',
-        doi: '"DOI: " + $(".elife-doi-doi").text().replace("http://dx.doi.org/", "")'
+        doi: '$(".elife-doi-doi").text().replace("http://dx.doi.org/", "")'
     }
 
 };
@@ -82,7 +84,7 @@ var extract = function extract(document, rule) {
     message.links = $(message.fulltext).find('a').
         map(function(i,e) {
             var url = e.getAttribute('href');
-            if(url.match(/^[^#]+/)) {
+            if(url && url.match(linksRegex)) {
                 return url;
             }
         }

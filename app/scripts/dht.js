@@ -1,7 +1,7 @@
 'use strict';
 
-var Chord = require('webrtc-chord');
 var Peer = require('peerjs');
+var Chord = require('webrtc-chord-browserify');
 
 var _ = require('underscore');
 
@@ -125,8 +125,8 @@ window.onunload = window.onbeforeunload = function() {
     chord.leave();
 };
 
-module.exports.chord = chord;
+module.exports = chord;
 module.exports.get = chord.retrieve;
-module.exports.put = chord.put;
+module.exports.put = chord.insert;
 module.exports.remove = chord.remove;
 module.exports.search = search;

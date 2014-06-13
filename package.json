@@ -6,12 +6,13 @@
     "jquery": "*",
     "crypto-js": "~3.1.2",
     "peerjs": "~0.3.8",
-    "underscore": "*"
+    "underscore": "*",
+    "webrtc-chord-browserify": "jure/webrtc-chord"
   },
   "devDependencies": {
-    "browserify": "*",
+    "browserify": "~4.1.10",
     "grunt": "~0.4.1",
-    "grunt-browserify": "*",
+    "grunt-browserify": "~2.1.0",
     "grunt-contrib-copy": "~0.4.1",
     "grunt-contrib-concat": "~0.3.0",
     "grunt-contrib-uglify": "~0.2.0",
@@ -37,9 +38,11 @@
   "engines": {
     "node": ">=0.8.0"
   },
-  "browserify-shim": "./shims.js",
+  "browserify": {
+    "transform": ["browserify-shim"]
+  },
   "browser": {
-    "webrtc-chord": "./app/scripts/vendor/webrtc-chord.js",
-    "peerjs": "./app/scripts/vendor/peer.js"
-  }
+    "peerjs": "./node_modules/peerjs/dist/peer.js"
+  },
+  "browserify-shim": "./shims.js"
 }
