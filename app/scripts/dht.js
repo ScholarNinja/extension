@@ -39,8 +39,9 @@ var config = {
             debug: 3,
             config: {
                 iceServers: [
-                    {url: 'stun:54.187.230.130'},
-                    {url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
+                    {url: 'stun:stun.l.google.com:19302'}
+                    // {url: 'stun:54.187.230.130'},
+                    //{url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
                 ]
             }
         }
