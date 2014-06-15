@@ -269,7 +269,7 @@ var createOrJoin = function(id) {
     peer.listAllPeers(function (keys) {
         keys.map(function(p) {
             // Don't connect to self, or chord's PeerId, or any eliminated peers
-            if(p !== id && p !== chord.getPeerId() && eliminatedPeers.indexOf(p) !== -1) {
+            if(p !== id && p !== chord.getPeerId() && eliminatedPeers.indexOf(p) === -1) {
                 console.log('Peer', p);
                 peers.push(p);
             }
