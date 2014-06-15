@@ -9,7 +9,7 @@ if(rule) {
 
     var message = extractor.extract(document, rule);
 
-    chrome.runtime.sendMessage(message, function(response) {
-        console.log(response);
-    });
+    var port = chrome.runtime.connect({name: 'content'});
+    port.postMessage(message);
+
 }

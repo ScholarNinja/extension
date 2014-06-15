@@ -6,8 +6,9 @@
     "jquery": "*",
     "crypto-js": "~3.1.2",
     "peerjs": "~0.3.8",
-    "underscore": "*",
-    "webrtc-chord-browserify": "jure/webrtc-chord"
+    "underscore": "~1.6.0",
+    "webrtc-chord-browserify": "jure/webrtc-chord",
+    "async": "~0.9.0"
   },
   "devDependencies": {
     "browserify": "~4.1.10",

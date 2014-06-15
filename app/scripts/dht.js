@@ -34,20 +34,19 @@ var join = function(myPeerId, error) {
 var config = {
     peer: { // The object to pass to the Peer constructor.
         options: {
-            host: 'localhost',
+            host: '54.187.230.130',
             port: 9000,
             debug: 3,
             config: {
                 iceServers: [
                     {url: 'stun:54.187.230.130'},
-                    {url: 'stun:stun.l.google.com:19302'},
-                    {url: 'turn:gorst@54.187.230.130', credential: 'hero'}
+                    {url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
                 ]
             }
         }
     },
     numberOfEntriesInSuccessorList: 3,
-    connectionPoolSize: 10,
+    connectionPoolSize: 20,
     connectionOpenTimeout: 30000,
     requestTimeout: 180000,
     stabilizeTaskInterval: 30000,
@@ -61,7 +60,7 @@ var config = {
 var chord = new Chord(config);
 
 var peer = new Peer({
-    host: 'localhost',
+    host: '54.187.230.130',
     port: 9000,
     debug: 3,
     config: {
