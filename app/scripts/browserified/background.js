@@ -1,154 +1,19 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
-var extractor = require('./extractor');
-var dht = require('./dht');
-var async = require('async');
-var _ = require('underscore');
-
 chrome.runtime.onInstalled.addListener(function (details) {
     console.log('previousVersion', details.previousVersion);
 });
 
-var lunr = require('lunr');
-var index;
-var documents;
-
-// Prepare the pipeline
-var pipeline = new lunr.Pipeline();
-pipeline.add(lunr.trimmer);
-pipeline.add(lunr.stemmer);
-pipeline.add(lunr.stopWordFilter);
-
-var indexName = 'index.v2';
-
-var fieldBoosts = {
-    title: 10,
-    authors: 3,
-    abstract: 2,
-    journal: 2,
-    fulltext: 1
-};
-
-/* Document example
-
-We use DOI as docref if
-it exists.
-
-docref = "10.1371/journal.pone.0004821"
-
-Or by hashing the document's fields, we get a docref:
-8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
-
-"10.1371/journal.pone.0004821" = {
-    url: "http://www.plosone.org/article/info%3Adoi%2F10.1371%2Fjournal.pone.0004821",
-    doi: "10.1371/journal.pone.0004821",
-    title: "The Action of Key Factors in Protein Evolution at High Temporal Resolution",
-    authors: "Armin Schmitt, Johannes Schuchhardt, Gudrun A. Brockmann",
-    year: "2009",
-    journal: "PLOS ONE"
-}
-*/
-
-function addToIndex(doc) {
-    // Save document locally and to DHT, without the full text.
-    documents[doc.id] = doc;
-    dht.put(doc.id, _.omit(doc, 'fulltext'));
-
-    Object.keys(fieldBoosts).forEach(function (key){
-        var keywords = pipeline.run(lunr.tokenizer(doc[key]));
-        keywords.forEach(function(keyword) {
-            // Add to DHT: [key]keyword: doc.id
-            // E.g. [title]cancer
-            var dhtKey = '[' + key + ']' + keyword;
-            dht.put(dhtKey, doc.id);
-            // console.log('Added document', doc.id, 'to index for', dhtKey);
-        });
-    });
-
-    doc.links.forEach(function(link) {
-        // Add to DHT [URL]link: doc.id
-        var dhtKey = '[URL]' + link;
-        dht.put(dhtKey, doc.id);
-        // console.log('Added document', doc.id, 'to index for', dhtKey);
-    });
-
-    var localIndex = {};
-    localIndex[indexName] = JSON.stringify(index);
-    chrome.storage.local.set(localIndex);
-}
-
-function getDocumentFromDht(ref, callback) {
-    if(documents[ref]) {
-        callback(null, documents[ref]);
-    } else {
-        dht.get(ref, function(entries, error) {
-            if(error) {
-                callback(error);
-            }
-            if(entries[0]) {
-                // Cache locally
-                documents[ref] = entries[0];
-                callback(null, entries[0]);
-            }
-        });
-    }
-}
-
-function findDocuments(query, port) {
-    var keywords = pipeline.run(lunr.tokenizer(query));
-    var refs = [];
-
-    _.each(keywords, function (key) {
-        dht.get('[title]' + key, function(entries, error) {
-            if (error) {
-                console.log('Failed to retrieve entries: ' + error);
-            } else {
-                refs.push(_.flatten(entries));
-                if(key === _.last(keywords)) {
-                    // Only intersect if there are more than 1 keywords
-                    if(refs.length > 1) {
-                        refs = _.intersection.apply(_, refs);
-                    } else {
-                        refs = refs[0];
-                    }
-                    async.map(refs, getDocumentFromDht, function (err, results) {
-                        if(err) {
-                            console.log(err);
-                        }
-                        console.log(results);
-                        port.postMessage(results);
-                        console.log('Found ' + results.length + ' documents.');
-                    });
-                }
-            }
-        });
-    });
-}
-
-// Restore from storage
-chrome.storage.local.get(indexName, function (obj) {
-    if (typeof(obj.index) !== 'string') {
-        index = {};
-    } else {
-        index = JSON.parse(obj.index);
-    }
-});
-
-chrome.storage.local.get('documents', function (obj) {
-    if(obj.documents === undefined) {
-        documents = {};
-    } else {
-        documents = obj.documents;
-    }
-});
+var extractor = require('./extractor');
+var doc = require('./document');
 
 chrome.runtime.onConnect.addListener(function(port) {
     if(port.name === 'popup') {
         port.onMessage.addListener(function(request) {
             console.log('Received message from', port.name);
             if (request.method === 'GET') {
-                findDocuments(request.query, port);
+                doc.find(request.query, port);
             }
         });
     } else {
@@ -156,7 +21,7 @@ chrome.runtime.onConnect.addListener(function(port) {
             console.log('Received message from', port.name);
 
             if(request.method === 'POST') {
-                addToIndex(request);
+                doc.add(request);
                 port.postMessage('OK');
             }
         });
@@ -178,29 +43,24 @@ function getSettings() {
 chrome.tabs.onUpdated.addListener(function(tabId, props, tab) {
     // Prevent multiple calls
     if (props.status === 'loading' && tab.selected) {
-        // console.info('onUpdated');
         getSettings();
     }
 });
 
 chrome.tabs.onHighlighted.addListener(function() {
-    //console.info('onHighlighted');
     getSettings();
 });
 
-chrome.windows.onFocusChanged.addListener(function() {
-    //console.info('onFocusChanged');
-    getSettings();
-});
+// chrome.windows.onFocusChanged.addListener(function() {
+//     getSettings();
+// });
 
-
-},{"./dht":2,"./extractor":3,"async":4,"lunr":41,"underscore":43}],2:[function(require,module,exports){
+},{"./document":3,"./extractor":4}],2:[function(require,module,exports){
 'use strict';
 
-var Peer = require('peerjs');
 var Chord = require('webrtc-chord-browserify');
 
-var _ = require('underscore');
+var $ = require('jquery');
 
 var eliminatedPeers = [];
 
@@ -210,9 +70,8 @@ var peerJsConfig = {
     debug: 3,
     config: {
         iceServers: [
-            {url: 'stun:stun.l.google.com:19302'}
-            // {url: 'stun:54.187.230.130'},
-            //{url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
+            {url: 'stun:stun.l.google.com:19302'},
+            {url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
         ]
     }
 };
@@ -222,7 +81,7 @@ var config = {
         options: peerJsConfig
     },
     numberOfEntriesInSuccessorList: 3,
-    connectionPoolSize: 20,
+    connectionPoolSize: 10,
     connectionOpenTimeout: 30000,
     requestTimeout: 180000,
     stabilizeTaskInterval: 30000,
@@ -233,8 +92,6 @@ var config = {
 // Create a new chord instance
 var chord = new Chord(config);
 
-var peer = new Peer(peerJsConfig);
-
 var updatePeerId = function(peerId) {
     console.log('My peer ID: ' + peerId);
 };
@@ -243,6 +100,40 @@ var errorHandler = function(error) {
     if (error) {
         console.log('Failed: ' + error);
     }
+};
+
+var createOrJoin = function(myPeerId) {
+    var peers = [];
+    $.get(
+        'http://' + peerJsConfig.host + ':9001/',
+        function(data) {
+            // Array of peers on DHT network
+            data.map(function(p) {
+                // Don't connect to our PeerId, or any eliminated peers
+                if (p !== chord.getPeerId() &&
+                    eliminatedPeers.indexOf(p) === -1 &&
+                    p !== myPeerId)
+                {
+                    console.log('Peer', p);
+                    peers.push(p);
+                }
+            });
+
+            // First peeer
+            if (peers[0]) {
+                // Join an existing chord network
+                console.log('Joining', peers[0]);
+                chord.join(peers[0], join);
+            } else if (eliminatedPeers.length !== 0) {
+                console.log('Unable to join any of the existing peers. Failing.');
+            } else {
+                // Create a new chord network
+                console.log('Creating new network');
+                chord.create(create);
+            }
+
+        }
+    );
 };
 
 var create = function(myPeerId, error) {
@@ -259,65 +150,14 @@ var join = function(myPeerId, error) {
         // Retry with another peer.
         var currentPeer = error.message.substr(22,16);
         eliminatedPeers.push(currentPeer);
+        createOrJoin(myPeerId, error);
     } else {
         updatePeerId(myPeerId);
     }
 };
 
-var createOrJoin = function(id) {
-    var peers = [];
-    peer.listAllPeers(function (keys) {
-        keys.map(function(p) {
-            // Don't connect to self, or chord's PeerId, or any eliminated peers
-            if(p !== id && p !== chord.getPeerId() && eliminatedPeers.indexOf(p) === -1) {
-                console.log('Peer', p);
-                peers.push(p);
-            }
-        });
-
-        // First peeer
-        if (peers[0]) {
-            // Join an existing chord network
-            console.log('Joining', peers[0]);
-            chord.join(peers[0], join);
-        } else if (eliminatedPeers.length !== 0) {
-            console.log('Unable to join any of the existing peers. Failing.');
-        } else {
-            // Create a new chord network
-            console.log('Creating new network');
-            chord.create(create);
-        }
-    });
-    peer.destroy();
-};
-
-peer.on('open', createOrJoin);
-
-function search(query) {
-    // Split query by keyword
-    var keywords = query.split(' ');
-
-    // Retrieve entries
-    var all = [];
-    var results = [];
-    _.each(keywords, function (key) {
-        chord.retrieve(key, function(entries, error) {
-            if (error) {
-                console.log('Failed to retrieve entries: ' + error);
-            }
-            all.push(_.flatten(entries));
-            if(key === _.last(keywords)) {
-                results = _.intersection.apply(_, all);
-                console.log(results);
-            }
-        });
-    });
-}
 
 window.onunload = window.onbeforeunload = function() {
-    if (!!peer && !peer.destroyed) {
-        peer.destroy();
-    }
     chord.leave();
 };
 
@@ -325,8 +165,269 @@ module.exports = chord;
 module.exports.get = chord.retrieve;
 module.exports.put = chord.insert;
 module.exports.remove = chord.remove;
-module.exports.search = search;
-},{"peerjs":42,"underscore":43,"webrtc-chord-browserify":45}],3:[function(require,module,exports){
+module.exports.createOrJoin = createOrJoin;
+},{"jquery":41,"webrtc-chord-browserify":45}],3:[function(require,module,exports){
+'use strict';
+
+var _ = require('underscore');
+var async = require('async');
+
+// Join the DHT network
+var dht = require('./dht');
+dht.createOrJoin();
+
+// Prepare the pipeline
+var lunr = require('lunr');
+var pipeline = new lunr.Pipeline();
+pipeline.add(lunr.trimmer);
+pipeline.add(lunr.stemmer);
+pipeline.add(lunr.stopWordFilter);
+
+var documents;
+
+// Fields and boosts
+var fields = {
+    title: 10,
+    authors: 3,
+    abstract: 2,
+    journal: 2,
+    fulltext: 1
+};
+
+function restore() {
+    chrome.storage.local.get('documents', function (obj) {
+        if(obj.documents === undefined) {
+            documents = {};
+        } else {
+            documents = obj.documents;
+        }
+    });
+}
+
+restore();
+
+function store(documents) {
+    chrome.storage.local.set(documents);
+}
+
+/* Document example
+
+We use DOI as docref if
+it exists.
+
+docref = "10.1371/journal.pone.0004821"
+
+Or by hashing the document's fields, we get a docref:
+8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
+
+"10.1371/journal.pone.0004821" = {
+    url: "http://www.plosone.org/article/info%3Adoi%2F10.1371%2Fjournal.pone.0004821",
+    doi: "10.1371/journal.pone.0004821",
+    title: "The Action of Key Factors in Protein Evolution at High Temporal Resolution",
+    authors: "Armin Schmitt, Johannes Schuchhardt, Gudrun A. Brockmann",
+    year: "2009",
+    journal: "PLOS ONE"
+}
+*/
+
+function get(ref, callback) {
+    if(documents[ref]) {
+        callback(null, documents[ref]);
+    } else {
+        dht.get(ref, function(entries, error) {
+            if(error) {
+                callback(error, null);
+            } else if(entries[0] || entries.length === 0)  {
+                // Cache locally
+                documents[ref] = entries[0];
+                callback(null, entries[0]);
+            }
+        });
+    }
+}
+
+function add(doc) {
+    // Try to get document, don't index it if it already exists:
+    get(doc.id, function(error, entry) {
+        // Document doesn't exist
+        if(error || !entry) {
+            // Save document locally and to DHT, without the full text.
+            documents[doc.id] = doc;
+            dht.put(doc.id, _.omit(doc, 'fulltext'));
+
+            Object.keys(fields).forEach(function (key){
+                var keywords = pipeline.run(lunr.tokenizer(doc[key]));
+                keywords.forEach(function(keyword) {
+                    // Add to DHT: [key]keyword: doc.id
+                    // E.g. [title]cancer
+                    var dhtKey = '[' + key + ']' + keyword;
+                    dht.put(dhtKey, doc.id);
+                    // console.log('Added document', doc.id, 'to index for', dhtKey);
+                });
+            });
+
+            doc.links.forEach(function(link) {
+                // Add to DHT [URL]link: doc.id
+                var dhtKey = '[URL]' + link;
+                dht.put(dhtKey, doc.id);
+                // console.log('Added document', doc.id, 'to index for', dhtKey);
+            });
+
+            store(documents);
+        } else {
+            console.log('Document is already indexed');
+        }
+    });
+}
+
+// Scoring example
+// title: 10,
+// authors: 3,
+// abstract: 2,
+// journal: 2,
+// fulltext: 1
+
+// query = hello machine
+
+// keyword 1 = hello
+
+// title: [1]
+// abstract: [1,3]
+// fulltext: [2,1]
+// authors: [1,2]
+
+// union = {
+//   1: 15 (10+3+2),
+//   2: 4 (1+3),
+//   3: 2
+// }
+
+// keyword 2 = machine
+
+// title: [2,3]
+// abstract: [2]
+// fulltext: [2,1]
+// authors: [4]
+
+// union = {
+//   1: 1,
+//   2: 14,
+//   3: 10
+//   4: 3
+// }
+
+// [keyword 2 union, keyword 1 union] intersection =
+
+// {
+//   1: 16,
+//   2: 18,
+//   3: 12
+// }
+
+// Document 2 has highest score.
+
+function find(query, port) {
+    // Enable full URL search, naïve.
+    var keywords;
+    if(query.match(/^http:\/\//)) {
+        keywords = [query];
+    } else {
+        keywords = pipeline.run(lunr.tokenizer(query));
+    }
+
+    async.map(keywords, findByKeyword, function (error, keywordsIdsAndScores) {
+        var response;
+        if(error) {
+            response = {status: 'FAIL'};
+            port.postMessage(response);
+        } else {
+            // keywordsIdsAndScores e.g.
+            // [{1: 10, 2: 13, 3: 7}, { ... }]
+            response = {status: 'OK'};
+            var scores = {};
+            var keys = [];
+            _.each(keywordsIdsAndScores, function(idsAndScores) {
+                keys = _.keys(idsAndScores);
+                _.each(idsAndScores, function (score, id) {
+                    if(scores[id]) {
+                        scores[id] = scores[id] + score;
+                    } else {
+                        scores[id] = score;
+                    }
+                });
+            });
+            var matchingDocuments = _.intersection(keys);
+            matchingDocuments = _.sortBy(matchingDocuments, function (key) {
+                return -scores[key];
+            });
+
+            async.map(matchingDocuments, get.bind(this), function (error, result) {
+                if(error) {
+                    response = {status: 'FAIL'};
+                } else {
+                    // An array of documents
+                    response.results = result;
+                }
+                port.postMessage(response);
+            });
+        }
+    });
+}
+
+function findByKeyword(keyword, callback) {
+    // First build fieldsWithKeywords array, e.g.:
+    // [{'title': keyword}, {'authors': keyword}]
+    var fieldsWithKeywords = _.map(_.keys(fields), function(field) {
+        var pair = {};
+        pair[field] = keyword;
+        return pair;
+    });
+
+    // Iterate through each indexed field asynchronously
+    async.map(fieldsWithKeywords, findByFieldAndKeyword, function (error, fieldsAndIds) {
+        if (error) {
+            console.log('Failed to find', keyword, ':', error);
+            callback(error);
+        } else {
+            // fieldsAndIds = [{title: [1,2]}, {autors: [2,3]}, {...}, ...]
+            var result = {};
+            _.each(fieldsAndIds, function(fieldAndIds) {
+                var field = _.keys(fieldAndIds)[0];
+                var ids = _.values(fieldAndIds)[0];
+                _.each(ids, function(id) {
+                    // Adds up the scores according to boosts
+                    if(result[id]) {
+                        result[id] = result[id] + fields[field];
+                    } else {
+                        result[id] = fields[field];
+                    }
+                });
+            });
+            // result e.g. {1: 10, 2: 13, 3: 3}
+            callback(null, result);
+        }
+    });
+}
+
+function findByFieldAndKeyword(fieldKeyword, callback) {
+    var field = _.keys(fieldKeyword)[0];
+    var keyword = fieldKeyword[field];
+
+    dht.get('[' + field + ']' + keyword, function(entries, error) {
+        if (error) {
+            console.log('Failed to retrieve entries:', error);
+            callback(error);
+        } else {
+            var result = {};
+            result[field] = _.flatten(entries);
+            callback(null, result);
+        }
+    });
+}
+
+module.exports.find = find;
+module.exports.add = add;
+},{"./dht":2,"async":5,"lunr":42,"underscore":43}],4:[function(require,module,exports){
 'use strict';
 /*jshint -W061 */
 
@@ -406,7 +507,7 @@ var extract = function extract(document, rule) {
 
 module.exports.supported = supported;
 module.exports.extract = extract;
-},{"crypto-js/sha256":34,"jquery":40}],4:[function(require,module,exports){
+},{"crypto-js/sha256":35,"jquery":41}],5:[function(require,module,exports){
 (function (process){
 /*!
  * async
@@ -1533,7 +1634,7 @@ module.exports.extract = extract;
 }());
 
 }).call(this,require("FWaASH"))
-},{"FWaASH":5}],5:[function(require,module,exports){
+},{"FWaASH":6}],6:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -1598,7 +1699,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -1826,7 +1927,7 @@ process.chdir = function (dir) {
 	return CryptoJS.AES;
 
 }));
-},{"./cipher-core":7,"./core":8,"./enc-base64":9,"./evpkdf":11,"./md5":16}],7:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9,"./enc-base64":10,"./evpkdf":12,"./md5":17}],8:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -2702,7 +2803,7 @@ process.chdir = function (dir) {
 
 
 }));
-},{"./core":8}],8:[function(require,module,exports){
+},{"./core":9}],9:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -3429,7 +3530,7 @@ process.chdir = function (dir) {
 	return CryptoJS;
 
 }));
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -3553,7 +3654,7 @@ process.chdir = function (dir) {
 	return CryptoJS.enc.Base64;
 
 }));
-},{"./core":8}],10:[function(require,module,exports){
+},{"./core":9}],11:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -3703,7 +3804,7 @@ process.chdir = function (dir) {
 	return CryptoJS.enc.Utf16;
 
 }));
-},{"./core":8}],11:[function(require,module,exports){
+},{"./core":9}],12:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -3836,7 +3937,7 @@ process.chdir = function (dir) {
 	return CryptoJS.EvpKDF;
 
 }));
-},{"./core":8,"./hmac":13,"./sha1":32}],12:[function(require,module,exports){
+},{"./core":9,"./hmac":14,"./sha1":33}],13:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -3903,7 +4004,7 @@ process.chdir = function (dir) {
 	return CryptoJS.format.Hex;
 
 }));
-},{"./cipher-core":7,"./core":8}],13:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],14:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4047,7 +4148,7 @@ process.chdir = function (dir) {
 
 
 }));
-},{"./core":8}],14:[function(require,module,exports){
+},{"./core":9}],15:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4066,7 +4167,7 @@ process.chdir = function (dir) {
 	return CryptoJS;
 
 }));
-},{"./aes":6,"./cipher-core":7,"./core":8,"./enc-base64":9,"./enc-utf16":10,"./evpkdf":11,"./format-hex":12,"./hmac":13,"./lib-typedarrays":15,"./md5":16,"./mode-cfb":17,"./mode-ctr":19,"./mode-ctr-gladman":18,"./mode-ecb":20,"./mode-ofb":21,"./pad-ansix923":22,"./pad-iso10126":23,"./pad-iso97971":24,"./pad-nopadding":25,"./pad-zeropadding":26,"./pbkdf2":27,"./rabbit":29,"./rabbit-legacy":28,"./rc4":30,"./ripemd160":31,"./sha1":32,"./sha224":33,"./sha256":34,"./sha3":35,"./sha384":36,"./sha512":37,"./tripledes":38,"./x64-core":39}],15:[function(require,module,exports){
+},{"./aes":7,"./cipher-core":8,"./core":9,"./enc-base64":10,"./enc-utf16":11,"./evpkdf":12,"./format-hex":13,"./hmac":14,"./lib-typedarrays":16,"./md5":17,"./mode-cfb":18,"./mode-ctr":20,"./mode-ctr-gladman":19,"./mode-ecb":21,"./mode-ofb":22,"./pad-ansix923":23,"./pad-iso10126":24,"./pad-iso97971":25,"./pad-nopadding":26,"./pad-zeropadding":27,"./pbkdf2":28,"./rabbit":30,"./rabbit-legacy":29,"./rc4":31,"./ripemd160":32,"./sha1":33,"./sha224":34,"./sha256":35,"./sha3":36,"./sha384":37,"./sha512":38,"./tripledes":39,"./x64-core":40}],16:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4143,7 +4244,7 @@ process.chdir = function (dir) {
 	return CryptoJS.lib.WordArray;
 
 }));
-},{"./core":8}],16:[function(require,module,exports){
+},{"./core":9}],17:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4412,7 +4513,7 @@ process.chdir = function (dir) {
 	return CryptoJS.MD5;
 
 }));
-},{"./core":8}],17:[function(require,module,exports){
+},{"./core":9}],18:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4491,7 +4592,7 @@ process.chdir = function (dir) {
 	return CryptoJS.mode.CFB;
 
 }));
-},{"./cipher-core":7,"./core":8}],18:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],19:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4608,7 +4709,7 @@ process.chdir = function (dir) {
 	return CryptoJS.mode.CTRGladman;
 
 }));
-},{"./cipher-core":7,"./core":8}],19:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],20:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4667,7 +4768,7 @@ process.chdir = function (dir) {
 	return CryptoJS.mode.CTR;
 
 }));
-},{"./cipher-core":7,"./core":8}],20:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],21:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4708,7 +4809,7 @@ process.chdir = function (dir) {
 	return CryptoJS.mode.ECB;
 
 }));
-},{"./cipher-core":7,"./core":8}],21:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],22:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4763,7 +4864,7 @@ process.chdir = function (dir) {
 	return CryptoJS.mode.OFB;
 
 }));
-},{"./cipher-core":7,"./core":8}],22:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],23:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4813,7 +4914,7 @@ process.chdir = function (dir) {
 	return CryptoJS.pad.Ansix923;
 
 }));
-},{"./cipher-core":7,"./core":8}],23:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],24:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4858,7 +4959,7 @@ process.chdir = function (dir) {
 	return CryptoJS.pad.Iso10126;
 
 }));
-},{"./cipher-core":7,"./core":8}],24:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],25:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4899,7 +5000,7 @@ process.chdir = function (dir) {
 	return CryptoJS.pad.Iso97971;
 
 }));
-},{"./cipher-core":7,"./core":8}],25:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],26:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4930,7 +5031,7 @@ process.chdir = function (dir) {
 	return CryptoJS.pad.NoPadding;
 
 }));
-},{"./cipher-core":7,"./core":8}],26:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],27:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -4976,7 +5077,7 @@ process.chdir = function (dir) {
 	return CryptoJS.pad.ZeroPadding;
 
 }));
-},{"./cipher-core":7,"./core":8}],27:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9}],28:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -5122,7 +5223,7 @@ process.chdir = function (dir) {
 	return CryptoJS.PBKDF2;
 
 }));
-},{"./core":8,"./hmac":13,"./sha1":32}],28:[function(require,module,exports){
+},{"./core":9,"./hmac":14,"./sha1":33}],29:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -5313,7 +5414,7 @@ process.chdir = function (dir) {
 	return CryptoJS.RabbitLegacy;
 
 }));
-},{"./cipher-core":7,"./core":8,"./enc-base64":9,"./evpkdf":11,"./md5":16}],29:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9,"./enc-base64":10,"./evpkdf":12,"./md5":17}],30:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -5506,7 +5607,7 @@ process.chdir = function (dir) {
 	return CryptoJS.Rabbit;
 
 }));
-},{"./cipher-core":7,"./core":8,"./enc-base64":9,"./evpkdf":11,"./md5":16}],30:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9,"./enc-base64":10,"./evpkdf":12,"./md5":17}],31:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -5646,7 +5747,7 @@ process.chdir = function (dir) {
 	return CryptoJS.RC4;
 
 }));
-},{"./cipher-core":7,"./core":8,"./enc-base64":9,"./evpkdf":11,"./md5":16}],31:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9,"./enc-base64":10,"./evpkdf":12,"./md5":17}],32:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -5914,7 +6015,7 @@ process.chdir = function (dir) {
 	return CryptoJS.RIPEMD160;
 
 }));
-},{"./core":8}],32:[function(require,module,exports){
+},{"./core":9}],33:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -6065,7 +6166,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA1;
 
 }));
-},{"./core":8}],33:[function(require,module,exports){
+},{"./core":9}],34:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -6146,7 +6247,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA224;
 
 }));
-},{"./core":8,"./sha256":34}],34:[function(require,module,exports){
+},{"./core":9,"./sha256":35}],35:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -6346,7 +6447,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA256;
 
 }));
-},{"./core":8}],35:[function(require,module,exports){
+},{"./core":9}],36:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -6670,7 +6771,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA3;
 
 }));
-},{"./core":8,"./x64-core":39}],36:[function(require,module,exports){
+},{"./core":9,"./x64-core":40}],37:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -6754,7 +6855,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA384;
 
 }));
-},{"./core":8,"./sha512":37,"./x64-core":39}],37:[function(require,module,exports){
+},{"./core":9,"./sha512":38,"./x64-core":40}],38:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -7078,7 +7179,7 @@ process.chdir = function (dir) {
 	return CryptoJS.SHA512;
 
 }));
-},{"./core":8,"./x64-core":39}],38:[function(require,module,exports){
+},{"./core":9,"./x64-core":40}],39:[function(require,module,exports){
 ;(function (root, factory, undef) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -7849,7 +7950,7 @@ process.chdir = function (dir) {
 	return CryptoJS.TripleDES;
 
 }));
-},{"./cipher-core":7,"./core":8,"./enc-base64":9,"./evpkdf":11,"./md5":16}],39:[function(require,module,exports){
+},{"./cipher-core":8,"./core":9,"./enc-base64":10,"./evpkdf":12,"./md5":17}],40:[function(require,module,exports){
 ;(function (root, factory) {
 	if (typeof exports === "object") {
 		// CommonJS
@@ -8154,7 +8255,7 @@ process.chdir = function (dir) {
 	return CryptoJS;
 
 }));
-},{"./core":8}],40:[function(require,module,exports){
+},{"./core":9}],41:[function(require,module,exports){
 /*!
  * jQuery JavaScript Library v2.1.1
  * http://jquery.com/
@@ -17346,7 +17447,7 @@ return jQuery;
 
 }));
 
-},{}],41:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 /**
  * lunr - http://lunrjs.com - A bit like Solr, but much smaller and not as bright - 0.5.3
  * Copyright (C) 2014 Oliver Nightingale
@@ -19227,7 +19328,4230 @@ lunr.TokenStore.prototype.toJSON = function () {
   }))
 })()
 
-},{}],42:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
+//     Underscore.js 1.6.0
+//     http://underscorejs.org
+//     (c) 2009-2014 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+//     Underscore may be freely distributed under the MIT license.
+
+(function() {
+
+  // Baseline setup
+  // --------------
+
+  // Establish the root object, `window` in the browser, or `exports` on the server.
+  var root = this;
+
+  // Save the previous value of the `_` variable.
+  var previousUnderscore = root._;
+
+  // Establish the object that gets returned to break out of a loop iteration.
+  var breaker = {};
+
+  // Save bytes in the minified (but not gzipped) version:
+  var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
+
+  // Create quick reference variables for speed access to core prototypes.
+  var
+    push             = ArrayProto.push,
+    slice            = ArrayProto.slice,
+    concat           = ArrayProto.concat,
+    toString         = ObjProto.toString,
+    hasOwnProperty   = ObjProto.hasOwnProperty;
+
+  // All **ECMAScript 5** native function implementations that we hope to use
+  // are declared here.
+  var
+    nativeForEach      = ArrayProto.forEach,
+    nativeMap          = ArrayProto.map,
+    nativeReduce       = ArrayProto.reduce,
+    nativeReduceRight  = ArrayProto.reduceRight,
+    nativeFilter       = ArrayProto.filter,
+    nativeEvery        = ArrayProto.every,
+    nativeSome         = ArrayProto.some,
+    nativeIndexOf      = ArrayProto.indexOf,
+    nativeLastIndexOf  = ArrayProto.lastIndexOf,
+    nativeIsArray      = Array.isArray,
+    nativeKeys         = Object.keys,
+    nativeBind         = FuncProto.bind;
+
+  // Create a safe reference to the Underscore object for use below.
+  var _ = function(obj) {
+    if (obj instanceof _) return obj;
+    if (!(this instanceof _)) return new _(obj);
+    this._wrapped = obj;
+  };
+
+  // Export the Underscore object for **Node.js**, with
+  // backwards-compatibility for the old `require()` API. If we're in
+  // the browser, add `_` as a global object via a string identifier,
+  // for Closure Compiler "advanced" mode.
+  if (typeof exports !== 'undefined') {
+    if (typeof module !== 'undefined' && module.exports) {
+      exports = module.exports = _;
+    }
+    exports._ = _;
+  } else {
+    root._ = _;
+  }
+
+  // Current version.
+  _.VERSION = '1.6.0';
+
+  // Collection Functions
+  // --------------------
+
+  // The cornerstone, an `each` implementation, aka `forEach`.
+  // Handles objects with the built-in `forEach`, arrays, and raw objects.
+  // Delegates to **ECMAScript 5**'s native `forEach` if available.
+  var each = _.each = _.forEach = function(obj, iterator, context) {
+    if (obj == null) return obj;
+    if (nativeForEach && obj.forEach === nativeForEach) {
+      obj.forEach(iterator, context);
+    } else if (obj.length === +obj.length) {
+      for (var i = 0, length = obj.length; i < length; i++) {
+        if (iterator.call(context, obj[i], i, obj) === breaker) return;
+      }
+    } else {
+      var keys = _.keys(obj);
+      for (var i = 0, length = keys.length; i < length; i++) {
+        if (iterator.call(context, obj[keys[i]], keys[i], obj) === breaker) return;
+      }
+    }
+    return obj;
+  };
+
+  // Return the results of applying the iterator to each element.
+  // Delegates to **ECMAScript 5**'s native `map` if available.
+  _.map = _.collect = function(obj, iterator, context) {
+    var results = [];
+    if (obj == null) return results;
+    if (nativeMap && obj.map === nativeMap) return obj.map(iterator, context);
+    each(obj, function(value, index, list) {
+      results.push(iterator.call(context, value, index, list));
+    });
+    return results;
+  };
+
+  var reduceError = 'Reduce of empty array with no initial value';
+
+  // **Reduce** builds up a single result from a list of values, aka `inject`,
+  // or `foldl`. Delegates to **ECMAScript 5**'s native `reduce` if available.
+  _.reduce = _.foldl = _.inject = function(obj, iterator, memo, context) {
+    var initial = arguments.length > 2;
+    if (obj == null) obj = [];
+    if (nativeReduce && obj.reduce === nativeReduce) {
+      if (context) iterator = _.bind(iterator, context);
+      return initial ? obj.reduce(iterator, memo) : obj.reduce(iterator);
+    }
+    each(obj, function(value, index, list) {
+      if (!initial) {
+        memo = value;
+        initial = true;
+      } else {
+        memo = iterator.call(context, memo, value, index, list);
+      }
+    });
+    if (!initial) throw new TypeError(reduceError);
+    return memo;
+  };
+
+  // The right-associative version of reduce, also known as `foldr`.
+  // Delegates to **ECMAScript 5**'s native `reduceRight` if available.
+  _.reduceRight = _.foldr = function(obj, iterator, memo, context) {
+    var initial = arguments.length > 2;
+    if (obj == null) obj = [];
+    if (nativeReduceRight && obj.reduceRight === nativeReduceRight) {
+      if (context) iterator = _.bind(iterator, context);
+      return initial ? obj.reduceRight(iterator, memo) : obj.reduceRight(iterator);
+    }
+    var length = obj.length;
+    if (length !== +length) {
+      var keys = _.keys(obj);
+      length = keys.length;
+    }
+    each(obj, function(value, index, list) {
+      index = keys ? keys[--length] : --length;
+      if (!initial) {
+        memo = obj[index];
+        initial = true;
+      } else {
+        memo = iterator.call(context, memo, obj[index], index, list);
+      }
+    });
+    if (!initial) throw new TypeError(reduceError);
+    return memo;
+  };
+
+  // Return the first value which passes a truth test. Aliased as `detect`.
+  _.find = _.detect = function(obj, predicate, context) {
+    var result;
+    any(obj, function(value, index, list) {
+      if (predicate.call(context, value, index, list)) {
+        result = value;
+        return true;
+      }
+    });
+    return result;
+  };
+
+  // Return all the elements that pass a truth test.
+  // Delegates to **ECMAScript 5**'s native `filter` if available.
+  // Aliased as `select`.
+  _.filter = _.select = function(obj, predicate, context) {
+    var results = [];
+    if (obj == null) return results;
+    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(predicate, context);
+    each(obj, function(value, index, list) {
+      if (predicate.call(context, value, index, list)) results.push(value);
+    });
+    return results;
+  };
+
+  // Return all the elements for which a truth test fails.
+  _.reject = function(obj, predicate, context) {
+    return _.filter(obj, function(value, index, list) {
+      return !predicate.call(context, value, index, list);
+    }, context);
+  };
+
+  // Determine whether all of the elements match a truth test.
+  // Delegates to **ECMAScript 5**'s native `every` if available.
+  // Aliased as `all`.
+  _.every = _.all = function(obj, predicate, context) {
+    predicate || (predicate = _.identity);
+    var result = true;
+    if (obj == null) return result;
+    if (nativeEvery && obj.every === nativeEvery) return obj.every(predicate, context);
+    each(obj, function(value, index, list) {
+      if (!(result = result && predicate.call(context, value, index, list))) return breaker;
+    });
+    return !!result;
+  };
+
+  // Determine if at least one element in the object matches a truth test.
+  // Delegates to **ECMAScript 5**'s native `some` if available.
+  // Aliased as `any`.
+  var any = _.some = _.any = function(obj, predicate, context) {
+    predicate || (predicate = _.identity);
+    var result = false;
+    if (obj == null) return result;
+    if (nativeSome && obj.some === nativeSome) return obj.some(predicate, context);
+    each(obj, function(value, index, list) {
+      if (result || (result = predicate.call(context, value, index, list))) return breaker;
+    });
+    return !!result;
+  };
+
+  // Determine if the array or object contains a given value (using `===`).
+  // Aliased as `include`.
+  _.contains = _.include = function(obj, target) {
+    if (obj == null) return false;
+    if (nativeIndexOf && obj.indexOf === nativeIndexOf) return obj.indexOf(target) != -1;
+    return any(obj, function(value) {
+      return value === target;
+    });
+  };
+
+  // Invoke a method (with arguments) on every item in a collection.
+  _.invoke = function(obj, method) {
+    var args = slice.call(arguments, 2);
+    var isFunc = _.isFunction(method);
+    return _.map(obj, function(value) {
+      return (isFunc ? method : value[method]).apply(value, args);
+    });
+  };
+
+  // Convenience version of a common use case of `map`: fetching a property.
+  _.pluck = function(obj, key) {
+    return _.map(obj, _.property(key));
+  };
+
+  // Convenience version of a common use case of `filter`: selecting only objects
+  // containing specific `key:value` pairs.
+  _.where = function(obj, attrs) {
+    return _.filter(obj, _.matches(attrs));
+  };
+
+  // Convenience version of a common use case of `find`: getting the first object
+  // containing specific `key:value` pairs.
+  _.findWhere = function(obj, attrs) {
+    return _.find(obj, _.matches(attrs));
+  };
+
+  // Return the maximum element or (element-based computation).
+  // Can't optimize arrays of integers longer than 65,535 elements.
+  // See [WebKit Bug 80797](https://bugs.webkit.org/show_bug.cgi?id=80797)
+  _.max = function(obj, iterator, context) {
+    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
+      return Math.max.apply(Math, obj);
+    }
+    var result = -Infinity, lastComputed = -Infinity;
+    each(obj, function(value, index, list) {
+      var computed = iterator ? iterator.call(context, value, index, list) : value;
+      if (computed > lastComputed) {
+        result = value;
+        lastComputed = computed;
+      }
+    });
+    return result;
+  };
+
+  // Return the minimum element (or element-based computation).
+  _.min = function(obj, iterator, context) {
+    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
+      return Math.min.apply(Math, obj);
+    }
+    var result = Infinity, lastComputed = Infinity;
+    each(obj, function(value, index, list) {
+      var computed = iterator ? iterator.call(context, value, index, list) : value;
+      if (computed < lastComputed) {
+        result = value;
+        lastComputed = computed;
+      }
+    });
+    return result;
+  };
+
+  // Shuffle an array, using the modern version of the
+  // [Fisher-Yates shuffle](http://en.wikipedia.org/wiki/Fisher–Yates_shuffle).
+  _.shuffle = function(obj) {
+    var rand;
+    var index = 0;
+    var shuffled = [];
+    each(obj, function(value) {
+      rand = _.random(index++);
+      shuffled[index - 1] = shuffled[rand];
+      shuffled[rand] = value;
+    });
+    return shuffled;
+  };
+
+  // Sample **n** random values from a collection.
+  // If **n** is not specified, returns a single random element.
+  // The internal `guard` argument allows it to work with `map`.
+  _.sample = function(obj, n, guard) {
+    if (n == null || guard) {
+      if (obj.length !== +obj.length) obj = _.values(obj);
+      return obj[_.random(obj.length - 1)];
+    }
+    return _.shuffle(obj).slice(0, Math.max(0, n));
+  };
+
+  // An internal function to generate lookup iterators.
+  var lookupIterator = function(value) {
+    if (value == null) return _.identity;
+    if (_.isFunction(value)) return value;
+    return _.property(value);
+  };
+
+  // Sort the object's values by a criterion produced by an iterator.
+  _.sortBy = function(obj, iterator, context) {
+    iterator = lookupIterator(iterator);
+    return _.pluck(_.map(obj, function(value, index, list) {
+      return {
+        value: value,
+        index: index,
+        criteria: iterator.call(context, value, index, list)
+      };
+    }).sort(function(left, right) {
+      var a = left.criteria;
+      var b = right.criteria;
+      if (a !== b) {
+        if (a > b || a === void 0) return 1;
+        if (a < b || b === void 0) return -1;
+      }
+      return left.index - right.index;
+    }), 'value');
+  };
+
+  // An internal function used for aggregate "group by" operations.
+  var group = function(behavior) {
+    return function(obj, iterator, context) {
+      var result = {};
+      iterator = lookupIterator(iterator);
+      each(obj, function(value, index) {
+        var key = iterator.call(context, value, index, obj);
+        behavior(result, key, value);
+      });
+      return result;
+    };
+  };
+
+  // Groups the object's values by a criterion. Pass either a string attribute
+  // to group by, or a function that returns the criterion.
+  _.groupBy = group(function(result, key, value) {
+    _.has(result, key) ? result[key].push(value) : result[key] = [value];
+  });
+
+  // Indexes the object's values by a criterion, similar to `groupBy`, but for
+  // when you know that your index values will be unique.
+  _.indexBy = group(function(result, key, value) {
+    result[key] = value;
+  });
+
+  // Counts instances of an object that group by a certain criterion. Pass
+  // either a string attribute to count by, or a function that returns the
+  // criterion.
+  _.countBy = group(function(result, key) {
+    _.has(result, key) ? result[key]++ : result[key] = 1;
+  });
+
+  // Use a comparator function to figure out the smallest index at which
+  // an object should be inserted so as to maintain order. Uses binary search.
+  _.sortedIndex = function(array, obj, iterator, context) {
+    iterator = lookupIterator(iterator);
+    var value = iterator.call(context, obj);
+    var low = 0, high = array.length;
+    while (low < high) {
+      var mid = (low + high) >>> 1;
+      iterator.call(context, array[mid]) < value ? low = mid + 1 : high = mid;
+    }
+    return low;
+  };
+
+  // Safely create a real, live array from anything iterable.
+  _.toArray = function(obj) {
+    if (!obj) return [];
+    if (_.isArray(obj)) return slice.call(obj);
+    if (obj.length === +obj.length) return _.map(obj, _.identity);
+    return _.values(obj);
+  };
+
+  // Return the number of elements in an object.
+  _.size = function(obj) {
+    if (obj == null) return 0;
+    return (obj.length === +obj.length) ? obj.length : _.keys(obj).length;
+  };
+
+  // Array Functions
+  // ---------------
+
+  // Get the first element of an array. Passing **n** will return the first N
+  // values in the array. Aliased as `head` and `take`. The **guard** check
+  // allows it to work with `_.map`.
+  _.first = _.head = _.take = function(array, n, guard) {
+    if (array == null) return void 0;
+    if ((n == null) || guard) return array[0];
+    if (n < 0) return [];
+    return slice.call(array, 0, n);
+  };
+
+  // Returns everything but the last entry of the array. Especially useful on
+  // the arguments object. Passing **n** will return all the values in
+  // the array, excluding the last N. The **guard** check allows it to work with
+  // `_.map`.
+  _.initial = function(array, n, guard) {
+    return slice.call(array, 0, array.length - ((n == null) || guard ? 1 : n));
+  };
+
+  // Get the last element of an array. Passing **n** will return the last N
+  // values in the array. The **guard** check allows it to work with `_.map`.
+  _.last = function(array, n, guard) {
+    if (array == null) return void 0;
+    if ((n == null) || guard) return array[array.length - 1];
+    return slice.call(array, Math.max(array.length - n, 0));
+  };
+
+  // Returns everything but the first entry of the array. Aliased as `tail` and `drop`.
+  // Especially useful on the arguments object. Passing an **n** will return
+  // the rest N values in the array. The **guard**
+  // check allows it to work with `_.map`.
+  _.rest = _.tail = _.drop = function(array, n, guard) {
+    return slice.call(array, (n == null) || guard ? 1 : n);
+  };
+
+  // Trim out all falsy values from an array.
+  _.compact = function(array) {
+    return _.filter(array, _.identity);
+  };
+
+  // Internal implementation of a recursive `flatten` function.
+  var flatten = function(input, shallow, output) {
+    if (shallow && _.every(input, _.isArray)) {
+      return concat.apply(output, input);
+    }
+    each(input, function(value) {
+      if (_.isArray(value) || _.isArguments(value)) {
+        shallow ? push.apply(output, value) : flatten(value, shallow, output);
+      } else {
+        output.push(value);
+      }
+    });
+    return output;
+  };
+
+  // Flatten out an array, either recursively (by default), or just one level.
+  _.flatten = function(array, shallow) {
+    return flatten(array, shallow, []);
+  };
+
+  // Return a version of the array that does not contain the specified value(s).
+  _.without = function(array) {
+    return _.difference(array, slice.call(arguments, 1));
+  };
+
+  // Split an array into two arrays: one whose elements all satisfy the given
+  // predicate, and one whose elements all do not satisfy the predicate.
+  _.partition = function(array, predicate) {
+    var pass = [], fail = [];
+    each(array, function(elem) {
+      (predicate(elem) ? pass : fail).push(elem);
+    });
+    return [pass, fail];
+  };
+
+  // Produce a duplicate-free version of the array. If the array has already
+  // been sorted, you have the option of using a faster algorithm.
+  // Aliased as `unique`.
+  _.uniq = _.unique = function(array, isSorted, iterator, context) {
+    if (_.isFunction(isSorted)) {
+      context = iterator;
+      iterator = isSorted;
+      isSorted = false;
+    }
+    var initial = iterator ? _.map(array, iterator, context) : array;
+    var results = [];
+    var seen = [];
+    each(initial, function(value, index) {
+      if (isSorted ? (!index || seen[seen.length - 1] !== value) : !_.contains(seen, value)) {
+        seen.push(value);
+        results.push(array[index]);
+      }
+    });
+    return results;
+  };
+
+  // Produce an array that contains the union: each distinct element from all of
+  // the passed-in arrays.
+  _.union = function() {
+    return _.uniq(_.flatten(arguments, true));
+  };
+
+  // Produce an array that contains every item shared between all the
+  // passed-in arrays.
+  _.intersection = function(array) {
+    var rest = slice.call(arguments, 1);
+    return _.filter(_.uniq(array), function(item) {
+      return _.every(rest, function(other) {
+        return _.contains(other, item);
+      });
+    });
+  };
+
+  // Take the difference between one array and a number of other arrays.
+  // Only the elements present in just the first array will remain.
+  _.difference = function(array) {
+    var rest = concat.apply(ArrayProto, slice.call(arguments, 1));
+    return _.filter(array, function(value){ return !_.contains(rest, value); });
+  };
+
+  // Zip together multiple lists into a single array -- elements that share
+  // an index go together.
+  _.zip = function() {
+    var length = _.max(_.pluck(arguments, 'length').concat(0));
+    var results = new Array(length);
+    for (var i = 0; i < length; i++) {
+      results[i] = _.pluck(arguments, '' + i);
+    }
+    return results;
+  };
+
+  // Converts lists into objects. Pass either a single array of `[key, value]`
+  // pairs, or two parallel arrays of the same length -- one of keys, and one of
+  // the corresponding values.
+  _.object = function(list, values) {
+    if (list == null) return {};
+    var result = {};
+    for (var i = 0, length = list.length; i < length; i++) {
+      if (values) {
+        result[list[i]] = values[i];
+      } else {
+        result[list[i][0]] = list[i][1];
+      }
+    }
+    return result;
+  };
+
+  // If the browser doesn't supply us with indexOf (I'm looking at you, **MSIE**),
+  // we need this function. Return the position of the first occurrence of an
+  // item in an array, or -1 if the item is not included in the array.
+  // Delegates to **ECMAScript 5**'s native `indexOf` if available.
+  // If the array is large and already in sort order, pass `true`
+  // for **isSorted** to use binary search.
+  _.indexOf = function(array, item, isSorted) {
+    if (array == null) return -1;
+    var i = 0, length = array.length;
+    if (isSorted) {
+      if (typeof isSorted == 'number') {
+        i = (isSorted < 0 ? Math.max(0, length + isSorted) : isSorted);
+      } else {
+        i = _.sortedIndex(array, item);
+        return array[i] === item ? i : -1;
+      }
+    }
+    if (nativeIndexOf && array.indexOf === nativeIndexOf) return array.indexOf(item, isSorted);
+    for (; i < length; i++) if (array[i] === item) return i;
+    return -1;
+  };
+
+  // Delegates to **ECMAScript 5**'s native `lastIndexOf` if available.
+  _.lastIndexOf = function(array, item, from) {
+    if (array == null) return -1;
+    var hasIndex = from != null;
+    if (nativeLastIndexOf && array.lastIndexOf === nativeLastIndexOf) {
+      return hasIndex ? array.lastIndexOf(item, from) : array.lastIndexOf(item);
+    }
+    var i = (hasIndex ? from : array.length);
+    while (i--) if (array[i] === item) return i;
+    return -1;
+  };
+
+  // Generate an integer Array containing an arithmetic progression. A port of
+  // the native Python `range()` function. See
+  // [the Python documentation](http://docs.python.org/library/functions.html#range).
+  _.range = function(start, stop, step) {
+    if (arguments.length <= 1) {
+      stop = start || 0;
+      start = 0;
+    }
+    step = arguments[2] || 1;
+
+    var length = Math.max(Math.ceil((stop - start) / step), 0);
+    var idx = 0;
+    var range = new Array(length);
+
+    while(idx < length) {
+      range[idx++] = start;
+      start += step;
+    }
+
+    return range;
+  };
+
+  // Function (ahem) Functions
+  // ------------------
+
+  // Reusable constructor function for prototype setting.
+  var ctor = function(){};
+
+  // Create a function bound to a given object (assigning `this`, and arguments,
+  // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
+  // available.
+  _.bind = function(func, context) {
+    var args, bound;
+    if (nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
+    if (!_.isFunction(func)) throw new TypeError;
+    args = slice.call(arguments, 2);
+    return bound = function() {
+      if (!(this instanceof bound)) return func.apply(context, args.concat(slice.call(arguments)));
+      ctor.prototype = func.prototype;
+      var self = new ctor;
+      ctor.prototype = null;
+      var result = func.apply(self, args.concat(slice.call(arguments)));
+      if (Object(result) === result) return result;
+      return self;
+    };
+  };
+
+  // Partially apply a function by creating a version that has had some of its
+  // arguments pre-filled, without changing its dynamic `this` context. _ acts
+  // as a placeholder, allowing any combination of arguments to be pre-filled.
+  _.partial = function(func) {
+    var boundArgs = slice.call(arguments, 1);
+    return function() {
+      var position = 0;
+      var args = boundArgs.slice();
+      for (var i = 0, length = args.length; i < length; i++) {
+        if (args[i] === _) args[i] = arguments[position++];
+      }
+      while (position < arguments.length) args.push(arguments[position++]);
+      return func.apply(this, args);
+    };
+  };
+
+  // Bind a number of an object's methods to that object. Remaining arguments
+  // are the method names to be bound. Useful for ensuring that all callbacks
+  // defined on an object belong to it.
+  _.bindAll = function(obj) {
+    var funcs = slice.call(arguments, 1);
+    if (funcs.length === 0) throw new Error('bindAll must be passed function names');
+    each(funcs, function(f) { obj[f] = _.bind(obj[f], obj); });
+    return obj;
+  };
+
+  // Memoize an expensive function by storing its results.
+  _.memoize = function(func, hasher) {
+    var memo = {};
+    hasher || (hasher = _.identity);
+    return function() {
+      var key = hasher.apply(this, arguments);
+      return _.has(memo, key) ? memo[key] : (memo[key] = func.apply(this, arguments));
+    };
+  };
+
+  // Delays a function for the given number of milliseconds, and then calls
+  // it with the arguments supplied.
+  _.delay = function(func, wait) {
+    var args = slice.call(arguments, 2);
+    return setTimeout(function(){ return func.apply(null, args); }, wait);
+  };
+
+  // Defers a function, scheduling it to run after the current call stack has
+  // cleared.
+  _.defer = function(func) {
+    return _.delay.apply(_, [func, 1].concat(slice.call(arguments, 1)));
+  };
+
+  // Returns a function, that, when invoked, will only be triggered at most once
+  // during a given window of time. Normally, the throttled function will run
+  // as much as it can, without ever going more than once per `wait` duration;
+  // but if you'd like to disable the execution on the leading edge, pass
+  // `{leading: false}`. To disable execution on the trailing edge, ditto.
+  _.throttle = function(func, wait, options) {
+    var context, args, result;
+    var timeout = null;
+    var previous = 0;
+    options || (options = {});
+    var later = function() {
+      previous = options.leading === false ? 0 : _.now();
+      timeout = null;
+      result = func.apply(context, args);
+      context = args = null;
+    };
+    return function() {
+      var now = _.now();
+      if (!previous && options.leading === false) previous = now;
+      var remaining = wait - (now - previous);
+      context = this;
+      args = arguments;
+      if (remaining <= 0) {
+        clearTimeout(timeout);
+        timeout = null;
+        previous = now;
+        result = func.apply(context, args);
+        context = args = null;
+      } else if (!timeout && options.trailing !== false) {
+        timeout = setTimeout(later, remaining);
+      }
+      return result;
+    };
+  };
+
+  // Returns a function, that, as long as it continues to be invoked, will not
+  // be triggered. The function will be called after it stops being called for
+  // N milliseconds. If `immediate` is passed, trigger the function on the
+  // leading edge, instead of the trailing.
+  _.debounce = function(func, wait, immediate) {
+    var timeout, args, context, timestamp, result;
+
+    var later = function() {
+      var last = _.now() - timestamp;
+      if (last < wait) {
+        timeout = setTimeout(later, wait - last);
+      } else {
+        timeout = null;
+        if (!immediate) {
+          result = func.apply(context, args);
+          context = args = null;
+        }
+      }
+    };
+
+    return function() {
+      context = this;
+      args = arguments;
+      timestamp = _.now();
+      var callNow = immediate && !timeout;
+      if (!timeout) {
+        timeout = setTimeout(later, wait);
+      }
+      if (callNow) {
+        result = func.apply(context, args);
+        context = args = null;
+      }
+
+      return result;
+    };
+  };
+
+  // Returns a function that will be executed at most one time, no matter how
+  // often you call it. Useful for lazy initialization.
+  _.once = function(func) {
+    var ran = false, memo;
+    return function() {
+      if (ran) return memo;
+      ran = true;
+      memo = func.apply(this, arguments);
+      func = null;
+      return memo;
+    };
+  };
+
+  // Returns the first function passed as an argument to the second,
+  // allowing you to adjust arguments, run code before and after, and
+  // conditionally execute the original function.
+  _.wrap = function(func, wrapper) {
+    return _.partial(wrapper, func);
+  };
+
+  // Returns a function that is the composition of a list of functions, each
+  // consuming the return value of the function that follows.
+  _.compose = function() {
+    var funcs = arguments;
+    return function() {
+      var args = arguments;
+      for (var i = funcs.length - 1; i >= 0; i--) {
+        args = [funcs[i].apply(this, args)];
+      }
+      return args[0];
+    };
+  };
+
+  // Returns a function that will only be executed after being called N times.
+  _.after = function(times, func) {
+    return function() {
+      if (--times < 1) {
+        return func.apply(this, arguments);
+      }
+    };
+  };
+
+  // Object Functions
+  // ----------------
+
+  // Retrieve the names of an object's properties.
+  // Delegates to **ECMAScript 5**'s native `Object.keys`
+  _.keys = function(obj) {
+    if (!_.isObject(obj)) return [];
+    if (nativeKeys) return nativeKeys(obj);
+    var keys = [];
+    for (var key in obj) if (_.has(obj, key)) keys.push(key);
+    return keys;
+  };
+
+  // Retrieve the values of an object's properties.
+  _.values = function(obj) {
+    var keys = _.keys(obj);
+    var length = keys.length;
+    var values = new Array(length);
+    for (var i = 0; i < length; i++) {
+      values[i] = obj[keys[i]];
+    }
+    return values;
+  };
+
+  // Convert an object into a list of `[key, value]` pairs.
+  _.pairs = function(obj) {
+    var keys = _.keys(obj);
+    var length = keys.length;
+    var pairs = new Array(length);
+    for (var i = 0; i < length; i++) {
+      pairs[i] = [keys[i], obj[keys[i]]];
+    }
+    return pairs;
+  };
+
+  // Invert the keys and values of an object. The values must be serializable.
+  _.invert = function(obj) {
+    var result = {};
+    var keys = _.keys(obj);
+    for (var i = 0, length = keys.length; i < length; i++) {
+      result[obj[keys[i]]] = keys[i];
+    }
+    return result;
+  };
+
+  // Return a sorted list of the function names available on the object.
+  // Aliased as `methods`
+  _.functions = _.methods = function(obj) {
+    var names = [];
+    for (var key in obj) {
+      if (_.isFunction(obj[key])) names.push(key);
+    }
+    return names.sort();
+  };
+
+  // Extend a given object with all the properties in passed-in object(s).
+  _.extend = function(obj) {
+    each(slice.call(arguments, 1), function(source) {
+      if (source) {
+        for (var prop in source) {
+          obj[prop] = source[prop];
+        }
+      }
+    });
+    return obj;
+  };
+
+  // Return a copy of the object only containing the whitelisted properties.
+  _.pick = function(obj) {
+    var copy = {};
+    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
+    each(keys, function(key) {
+      if (key in obj) copy[key] = obj[key];
+    });
+    return copy;
+  };
+
+   // Return a copy of the object without the blacklisted properties.
+  _.omit = function(obj) {
+    var copy = {};
+    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
+    for (var key in obj) {
+      if (!_.contains(keys, key)) copy[key] = obj[key];
+    }
+    return copy;
+  };
+
+  // Fill in a given object with default properties.
+  _.defaults = function(obj) {
+    each(slice.call(arguments, 1), function(source) {
+      if (source) {
+        for (var prop in source) {
+          if (obj[prop] === void 0) obj[prop] = source[prop];
+        }
+      }
+    });
+    return obj;
+  };
+
+  // Create a (shallow-cloned) duplicate of an object.
+  _.clone = function(obj) {
+    if (!_.isObject(obj)) return obj;
+    return _.isArray(obj) ? obj.slice() : _.extend({}, obj);
+  };
+
+  // Invokes interceptor with the obj, and then returns obj.
+  // The primary purpose of this method is to "tap into" a method chain, in
+  // order to perform operations on intermediate results within the chain.
+  _.tap = function(obj, interceptor) {
+    interceptor(obj);
+    return obj;
+  };
+
+  // Internal recursive comparison function for `isEqual`.
+  var eq = function(a, b, aStack, bStack) {
+    // Identical objects are equal. `0 === -0`, but they aren't identical.
+    // See the [Harmony `egal` proposal](http://wiki.ecmascript.org/doku.php?id=harmony:egal).
+    if (a === b) return a !== 0 || 1 / a == 1 / b;
+    // A strict comparison is necessary because `null == undefined`.
+    if (a == null || b == null) return a === b;
+    // Unwrap any wrapped objects.
+    if (a instanceof _) a = a._wrapped;
+    if (b instanceof _) b = b._wrapped;
+    // Compare `[[Class]]` names.
+    var className = toString.call(a);
+    if (className != toString.call(b)) return false;
+    switch (className) {
+      // Strings, numbers, dates, and booleans are compared by value.
+      case '[object String]':
+        // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
+        // equivalent to `new String("5")`.
+        return a == String(b);
+      case '[object Number]':
+        // `NaN`s are equivalent, but non-reflexive. An `egal` comparison is performed for
+        // other numeric values.
+        return a != +a ? b != +b : (a == 0 ? 1 / a == 1 / b : a == +b);
+      case '[object Date]':
+      case '[object Boolean]':
+        // Coerce dates and booleans to numeric primitive values. Dates are compared by their
+        // millisecond representations. Note that invalid dates with millisecond representations
+        // of `NaN` are not equivalent.
+        return +a == +b;
+      // RegExps are compared by their source patterns and flags.
+      case '[object RegExp]':
+        return a.source == b.source &&
+               a.global == b.global &&
+               a.multiline == b.multiline &&
+               a.ignoreCase == b.ignoreCase;
+    }
+    if (typeof a != 'object' || typeof b != 'object') return false;
+    // Assume equality for cyclic structures. The algorithm for detecting cyclic
+    // structures is adapted from ES 5.1 section 15.12.3, abstract operation `JO`.
+    var length = aStack.length;
+    while (length--) {
+      // Linear search. Performance is inversely proportional to the number of
+      // unique nested structures.
+      if (aStack[length] == a) return bStack[length] == b;
+    }
+    // Objects with different constructors are not equivalent, but `Object`s
+    // from different frames are.
+    var aCtor = a.constructor, bCtor = b.constructor;
+    if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
+                             _.isFunction(bCtor) && (bCtor instanceof bCtor))
+                        && ('constructor' in a && 'constructor' in b)) {
+      return false;
+    }
+    // Add the first object to the stack of traversed objects.
+    aStack.push(a);
+    bStack.push(b);
+    var size = 0, result = true;
+    // Recursively compare objects and arrays.
+    if (className == '[object Array]') {
+      // Compare array lengths to determine if a deep comparison is necessary.
+      size = a.length;
+      result = size == b.length;
+      if (result) {
+        // Deep compare the contents, ignoring non-numeric properties.
+        while (size--) {
+          if (!(result = eq(a[size], b[size], aStack, bStack))) break;
+        }
+      }
+    } else {
+      // Deep compare objects.
+      for (var key in a) {
+        if (_.has(a, key)) {
+          // Count the expected number of properties.
+          size++;
+          // Deep compare each member.
+          if (!(result = _.has(b, key) && eq(a[key], b[key], aStack, bStack))) break;
+        }
+      }
+      // Ensure that both objects contain the same number of properties.
+      if (result) {
+        for (key in b) {
+          if (_.has(b, key) && !(size--)) break;
+        }
+        result = !size;
+      }
+    }
+    // Remove the first object from the stack of traversed objects.
+    aStack.pop();
+    bStack.pop();
+    return result;
+  };
+
+  // Perform a deep comparison to check if two objects are equal.
+  _.isEqual = function(a, b) {
+    return eq(a, b, [], []);
+  };
+
+  // Is a given array, string, or object empty?
+  // An "empty" object has no enumerable own-properties.
+  _.isEmpty = function(obj) {
+    if (obj == null) return true;
+    if (_.isArray(obj) || _.isString(obj)) return obj.length === 0;
+    for (var key in obj) if (_.has(obj, key)) return false;
+    return true;
+  };
+
+  // Is a given value a DOM element?
+  _.isElement = function(obj) {
+    return !!(obj && obj.nodeType === 1);
+  };
+
+  // Is a given value an array?
+  // Delegates to ECMA5's native Array.isArray
+  _.isArray = nativeIsArray || function(obj) {
+    return toString.call(obj) == '[object Array]';
+  };
+
+  // Is a given variable an object?
+  _.isObject = function(obj) {
+    return obj === Object(obj);
+  };
+
+  // Add some isType methods: isArguments, isFunction, isString, isNumber, isDate, isRegExp.
+  each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp'], function(name) {
+    _['is' + name] = function(obj) {
+      return toString.call(obj) == '[object ' + name + ']';
+    };
+  });
+
+  // Define a fallback version of the method in browsers (ahem, IE), where
+  // there isn't any inspectable "Arguments" type.
+  if (!_.isArguments(arguments)) {
+    _.isArguments = function(obj) {
+      return !!(obj && _.has(obj, 'callee'));
+    };
+  }
+
+  // Optimize `isFunction` if appropriate.
+  if (typeof (/./) !== 'function') {
+    _.isFunction = function(obj) {
+      return typeof obj === 'function';
+    };
+  }
+
+  // Is a given object a finite number?
+  _.isFinite = function(obj) {
+    return isFinite(obj) && !isNaN(parseFloat(obj));
+  };
+
+  // Is the given value `NaN`? (NaN is the only number which does not equal itself).
+  _.isNaN = function(obj) {
+    return _.isNumber(obj) && obj != +obj;
+  };
+
+  // Is a given value a boolean?
+  _.isBoolean = function(obj) {
+    return obj === true || obj === false || toString.call(obj) == '[object Boolean]';
+  };
+
+  // Is a given value equal to null?
+  _.isNull = function(obj) {
+    return obj === null;
+  };
+
+  // Is a given variable undefined?
+  _.isUndefined = function(obj) {
+    return obj === void 0;
+  };
+
+  // Shortcut function for checking if an object has a given property directly
+  // on itself (in other words, not on a prototype).
+  _.has = function(obj, key) {
+    return hasOwnProperty.call(obj, key);
+  };
+
+  // Utility Functions
+  // -----------------
+
+  // Run Underscore.js in *noConflict* mode, returning the `_` variable to its
+  // previous owner. Returns a reference to the Underscore object.
+  _.noConflict = function() {
+    root._ = previousUnderscore;
+    return this;
+  };
+
+  // Keep the identity function around for default iterators.
+  _.identity = function(value) {
+    return value;
+  };
+
+  _.constant = function(value) {
+    return function () {
+      return value;
+    };
+  };
+
+  _.property = function(key) {
+    return function(obj) {
+      return obj[key];
+    };
+  };
+
+  // Returns a predicate for checking whether an object has a given set of `key:value` pairs.
+  _.matches = function(attrs) {
+    return function(obj) {
+      if (obj === attrs) return true; //avoid comparing an object to itself.
+      for (var key in attrs) {
+        if (attrs[key] !== obj[key])
+          return false;
+      }
+      return true;
+    }
+  };
+
+  // Run a function **n** times.
+  _.times = function(n, iterator, context) {
+    var accum = Array(Math.max(0, n));
+    for (var i = 0; i < n; i++) accum[i] = iterator.call(context, i);
+    return accum;
+  };
+
+  // Return a random integer between min and max (inclusive).
+  _.random = function(min, max) {
+    if (max == null) {
+      max = min;
+      min = 0;
+    }
+    return min + Math.floor(Math.random() * (max - min + 1));
+  };
+
+  // A (possibly faster) way to get the current timestamp as an integer.
+  _.now = Date.now || function() { return new Date().getTime(); };
+
+  // List of HTML entities for escaping.
+  var entityMap = {
+    escape: {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#x27;'
+    }
+  };
+  entityMap.unescape = _.invert(entityMap.escape);
+
+  // Regexes containing the keys and values listed immediately above.
+  var entityRegexes = {
+    escape:   new RegExp('[' + _.keys(entityMap.escape).join('') + ']', 'g'),
+    unescape: new RegExp('(' + _.keys(entityMap.unescape).join('|') + ')', 'g')
+  };
+
+  // Functions for escaping and unescaping strings to/from HTML interpolation.
+  _.each(['escape', 'unescape'], function(method) {
+    _[method] = function(string) {
+      if (string == null) return '';
+      return ('' + string).replace(entityRegexes[method], function(match) {
+        return entityMap[method][match];
+      });
+    };
+  });
+
+  // If the value of the named `property` is a function then invoke it with the
+  // `object` as context; otherwise, return it.
+  _.result = function(object, property) {
+    if (object == null) return void 0;
+    var value = object[property];
+    return _.isFunction(value) ? value.call(object) : value;
+  };
+
+  // Add your own custom functions to the Underscore object.
+  _.mixin = function(obj) {
+    each(_.functions(obj), function(name) {
+      var func = _[name] = obj[name];
+      _.prototype[name] = function() {
+        var args = [this._wrapped];
+        push.apply(args, arguments);
+        return result.call(this, func.apply(_, args));
+      };
+    });
+  };
+
+  // Generate a unique integer id (unique within the entire client session).
+  // Useful for temporary DOM ids.
+  var idCounter = 0;
+  _.uniqueId = function(prefix) {
+    var id = ++idCounter + '';
+    return prefix ? prefix + id : id;
+  };
+
+  // By default, Underscore uses ERB-style template delimiters, change the
+  // following template settings to use alternative delimiters.
+  _.templateSettings = {
+    evaluate    : /<%([\s\S]+?)%>/g,
+    interpolate : /<%=([\s\S]+?)%>/g,
+    escape      : /<%-([\s\S]+?)%>/g
+  };
+
+  // When customizing `templateSettings`, if you don't want to define an
+  // interpolation, evaluation or escaping regex, we need one that is
+  // guaranteed not to match.
+  var noMatch = /(.)^/;
+
+  // Certain characters need to be escaped so that they can be put into a
+  // string literal.
+  var escapes = {
+    "'":      "'",
+    '\\':     '\\',
+    '\r':     'r',
+    '\n':     'n',
+    '\t':     't',
+    '\u2028': 'u2028',
+    '\u2029': 'u2029'
+  };
+
+  var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
+
+  // JavaScript micro-templating, similar to John Resig's implementation.
+  // Underscore templating handles arbitrary delimiters, preserves whitespace,
+  // and correctly escapes quotes within interpolated code.
+  _.template = function(text, data, settings) {
+    var render;
+    settings = _.defaults({}, settings, _.templateSettings);
+
+    // Combine delimiters into one regular expression via alternation.
+    var matcher = new RegExp([
+      (settings.escape || noMatch).source,
+      (settings.interpolate || noMatch).source,
+      (settings.evaluate || noMatch).source
+    ].join('|') + '|$', 'g');
+
+    // Compile the template source, escaping string literals appropriately.
+    var index = 0;
+    var source = "__p+='";
+    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
+      source += text.slice(index, offset)
+        .replace(escaper, function(match) { return '\\' + escapes[match]; });
+
+      if (escape) {
+        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
+      }
+      if (interpolate) {
+        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
+      }
+      if (evaluate) {
+        source += "';\n" + evaluate + "\n__p+='";
+      }
+      index = offset + match.length;
+      return match;
+    });
+    source += "';\n";
+
+    // If a variable is not specified, place data values in local scope.
+    if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
+
+    source = "var __t,__p='',__j=Array.prototype.join," +
+      "print=function(){__p+=__j.call(arguments,'');};\n" +
+      source + "return __p;\n";
+
+    try {
+      render = new Function(settings.variable || 'obj', '_', source);
+    } catch (e) {
+      e.source = source;
+      throw e;
+    }
+
+    if (data) return render(data, _);
+    var template = function(data) {
+      return render.call(this, data, _);
+    };
+
+    // Provide the compiled function source as a convenience for precompilation.
+    template.source = 'function(' + (settings.variable || 'obj') + '){\n' + source + '}';
+
+    return template;
+  };
+
+  // Add a "chain" function, which will delegate to the wrapper.
+  _.chain = function(obj) {
+    return _(obj).chain();
+  };
+
+  // OOP
+  // ---------------
+  // If Underscore is called as a function, it returns a wrapped object that
+  // can be used OO-style. This wrapper holds altered versions of all the
+  // underscore functions. Wrapped objects may be chained.
+
+  // Helper function to continue chaining intermediate results.
+  var result = function(obj) {
+    return this._chain ? _(obj).chain() : obj;
+  };
+
+  // Add all of the Underscore functions to the wrapper object.
+  _.mixin(_);
+
+  // Add all mutator Array functions to the wrapper.
+  each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
+    var method = ArrayProto[name];
+    _.prototype[name] = function() {
+      var obj = this._wrapped;
+      method.apply(obj, arguments);
+      if ((name == 'shift' || name == 'splice') && obj.length === 0) delete obj[0];
+      return result.call(this, obj);
+    };
+  });
+
+  // Add all accessor Array functions to the wrapper.
+  each(['concat', 'join', 'slice'], function(name) {
+    var method = ArrayProto[name];
+    _.prototype[name] = function() {
+      return result.call(this, method.apply(this._wrapped, arguments));
+    };
+  });
+
+  _.extend(_.prototype, {
+
+    // Start chaining a wrapped Underscore object.
+    chain: function() {
+      this._chain = true;
+      return this;
+    },
+
+    // Extracts the result from a wrapped and chained object.
+    value: function() {
+      return this._wrapped;
+    }
+
+  });
+
+  // AMD registration happens at the end for compatibility with AMD loaders
+  // that may not enforce next-turn semantics on modules. Even though general
+  // practice for AMD registration is to be anonymous, underscore registers
+  // as a named module because, like jQuery, it is a base library that is
+  // popular enough to be bundled in a third party lib, but not be part of
+  // an AMD load request. Those cases could generate an error when an
+  // anonymous define() is called outside of a loader request.
+  if (typeof define === 'function' && define.amd) {
+    define('underscore', [], function() {
+      return _;
+    });
+  }
+}).call(this);
+
+},{}],44:[function(require,module,exports){
+var _ = require('underscore');
+var Utils = require('./Utils');
+
+var CheckPredecessorTask = function(references) {
+  this._references = references;
+  this._timer = null;
+};
+
+CheckPredecessorTask.create = function(references, config) {
+  if (!Utils.isValidNumber(config.checkPredecessorTaskInterval) ||
+      config.checkPredecessorTaskInterval < 0) {
+    config.checkPredecessorTaskInterval = 30000;
+  }
+
+  var task = new CheckPredecessorTask(references);
+  var timer = setInterval(function() {
+    task.run();
+  }, config.checkPredecessorTaskInterval);
+  task._timer = timer;
+  return task;
+};
+
+CheckPredecessorTask.prototype = {
+  run: function() {
+    var self = this;
+
+    var predecessor = this._references.getPredecessor();
+    if (_.isNull(predecessor)) {
+      return;
+    }
+
+    predecessor.ping(function(isAlive, error) {
+      if (error) {
+        console.log(error);
+        self._references.removeReference(predecessor);
+      }
+    });
+  },
+
+  shutdown: function() {
+    if (!_.isNull(this._timer)) {
+      clearInterval(this._timer);
+    }
+  }
+};
+
+module.exports = CheckPredecessorTask;
+
+},{"./Utils":63,"underscore":43}],45:[function(require,module,exports){
+var _ = require('underscore');
+var LocalNode = require('./LocalNode');
+var Utils = require('./Utils');
+
+var Chord = function(config) {
+  if (!_.isObject(config)) {
+    throw new Error("Invalid argument.");
+  }
+
+  this._config = config;
+  this._localNode = null;
+  this.onentriesinserted = function(entries) { ; };
+  this.onentriesremoved = function(entries) { ; };
+};
+
+Chord.prototype = {
+  create: function(callback) {
+    var self = this;
+
+    if (!_.isNull(this._localNode)) {
+      throw new Error("Local node is already created.");
+    }
+    if (_.isUndefined(callback)) {
+      callback = function() { ; };
+    }
+
+    LocalNode.create(this, this._config, function(localNode, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+
+      self._localNode = localNode;
+      self._localNode.create(function(peerId, error) {
+        if (error) {
+          self.leave();
+          self._localNode = null;
+        }
+
+        callback(peerId, error);
+      });
+    });
+  },
+
+  join: function(bootstrapId, callback) {
+    var self = this;
+
+    if (!Utils.isNonemptyString(bootstrapId)) {
+      throw new Error("Invalid argument.");
+    }
+    if (!_.isNull(this._localNode)) {
+      throw new Error("Local node is already created.");
+    }
+    if (_.isUndefined(callback)) {
+      callback = function() { ; };
+    }
+
+    LocalNode.create(this, this._config, function(localNode, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+
+      self._localNode = localNode;
+      self._localNode.join(bootstrapId, function(peerId, error) {
+        if (error) {
+          self.leave();
+          self._localNode = null;
+        }
+
+        callback(peerId, error);
+      });
+    });
+  },
+
+  leave: function() {
+    var self = this;
+
+    if (_.isNull(this._localNode)) {
+      return;
+    }
+
+    this._localNode.leave(function() {
+      self._localNode = null;
+    });
+  },
+
+  insert: function(key, value, callback) {
+    if (_.isUndefined(callback)) {
+      callback = function() { ; };
+    }
+    if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
+      callback(new Error("Invalid arguments."));
+      return;
+    }
+
+    this._localNode.insert(key, value, callback);
+  },
+
+  retrieve: function(key, callback) {
+    if (_.isUndefined(callback)) {
+      callback = function() { ; };
+    }
+    if (!Utils.isNonemptyString(key)) {
+      callback(new Error("Invalid argument."));
+      return;
+    }
+
+    this._localNode.retrieve(key, callback);
+  },
+
+  remove: function(key, value, callback) {
+    if (_.isUndefined(callback)) {
+      callback = function() { ; };
+    }
+    if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
+      callback(new Error("Invalid arguments."));
+      return;
+    }
+
+    this._localNode.remove(key, value, callback);
+  },
+
+  getStatuses: function() {
+    return this._localNode.getStatuses();
+  },
+
+  getPeerId: function() {
+    if (_.isNull(this._localNode)) {
+      return null;
+    }
+
+    return this._localNode.getPeerId();
+  },
+
+  getNodeId: function() {
+    if (_.isNull(this._localNode)) {
+      return null;
+    }
+
+    return this._localNode.nodeId.toHexString();
+  },
+
+  toString: function() {
+    if (_.isNull(this._localNode)) {
+      return "";
+    }
+
+    return this._localNode.toDisplayString();
+  }
+};
+
+module.exports = Chord;
+
+},{"./LocalNode":53,"./Utils":63,"underscore":43}],46:[function(require,module,exports){
+var _ = require('underscore');
+var Request = require('./Request');
+var Response = require('./Response');
+
+var Connection = function(conn, callbacks) {
+  var self = this;
+
+  this._conn = conn;
+  this._callbacks = callbacks;
+
+  this._conn.on('data', function(data) {
+    self._onDataReceived(data);
+  });
+
+  this._conn.on('close', function() {
+    callbacks.closedByRemote(self);
+  });
+
+  this._conn.on('error', function(error) {
+    console.log(error);
+  });
+};
+
+Connection.prototype = {
+  send: function(requestOrResponse, callback) {
+    this._conn.send(requestOrResponse.toJson());
+  },
+
+  _onDataReceived: function(data) {
+    var self = this;
+
+    if (Response.isResponse(data)) {
+      var response;
+      try {
+        response = Response.fromJson(data);
+      } catch (e) {
+        return;
+      }
+      this._callbacks.responseReceived(this, response);
+    } else if (Request.isRequest(data)) {
+      var request;
+      try {
+        request = Request.fromJson(data);
+      } catch (e) {
+        return;
+      }
+      this._callbacks.requestReceived(this, request);
+    }
+  },
+
+  close: function() {
+    this._callbacks.closedByLocal(this);
+  },
+
+  destroy: function() {
+    this._conn.close();
+  },
+
+  getPeerId: function() {
+    return this._conn.peer;
+  },
+
+  isAvailable: function() {
+    return this._conn.open;
+  }
+};
+
+module.exports = Connection;
+
+},{"./Request":58,"./Response":60,"underscore":43}],47:[function(require,module,exports){
+var _ = require('underscore');
+var PeerAgent = require('./PeerAgent');
+var Connection = require('./Connection');
+var Utils = require('./Utils');
+
+var ConnectionFactory = function(config, nodeFactory, callback) {
+  var self = this;
+
+  var requestReceived = function(connection, request) {
+    connection.close();
+    nodeFactory.onRequestReceived(connection.getPeerId(), request);
+  };
+  var responseReceived = function(connection, response) {
+    connection.close();
+    nodeFactory.onResponseReceived(connection.getPeerId(), response);
+  };
+  var closedByRemote = function(connection) {
+    self.removeConnection(connection.getPeerId());
+  };
+  var closedByLocal = function(connection) {
+    self._connectionPool.set(connection.getPeerId(), connection);
+  };
+  this._peerAgent = new PeerAgent(config, {
+    onPeerSetup: function(peerId, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+      callback(self);
+    },
+
+    onConnectionOpened: function(peerId, conn, error) {
+      if (error) {
+        self._invokeNextCallback(peerId, null, error);
+        return;
+      }
+
+      var connection = new Connection(conn, {
+        requestReceived: requestReceived,
+        responseReceived: responseReceived,
+        closedByRemote: closedByRemote,
+        closedByLocal: closedByLocal
+      });
+
+      self._invokeNextCallback(peerId, connection);
+    },
+
+    onConnection: function(peerId, conn) {
+      if (self._connectionPool.has(peerId)) {
+        self.removeConnection(peerId);
+      }
+
+      var connection;
+      var timer = setTimeout(function() {
+        connection.close();
+      }, config.silentConnectionCloseTimeout);
+
+      var clearTimerOnce = _.once(function() { clearTimeout(timer); });
+
+      connection = new Connection(conn, {
+        requestReceived: function(connection, request) {
+          clearTimerOnce();
+          requestReceived(connection, request);
+        },
+        responseReceived: function(connection, response) {
+          clearTimerOnce();
+          responseReceived(connection, response);
+        },
+        closedByRemote: closedByRemote,
+        closedByLocal: closedByLocal
+      });
+    },
+
+    onPeerClosed: function() {
+      _.each(self._connectionPool.keys(), function(peerId) {
+        self.removeConnection(peerId);
+      });
+    }
+  });
+
+  if (!Utils.isValidNumber(config.connectionPoolSize) ||
+      config.connectionPoolSize < 0) {
+    config.connectionPoolSize = 10;
+  }
+  if (!Utils.isValidNumber(config.connectionCloseDelay) ||
+      config.connectionCloseDelay < 0) {
+    config.connectionCloseDelay = 5000;
+  }
+  if (!Utils.isValidNumber(config.silentConnectionCloseTimeout) ||
+      config.silentConnectionCloseTimeout < 0) {
+    config.silentConnectionCloseTimeout = 30000;
+  }
+  this._connectionPool = new Utils.Cache(config.connectionPoolSize, function(connection) {
+    _.delay(function() { connection.destroy(); }, config.connectionCloseDelay);
+  });
+  this._callbackQueue = new Utils.Queue();
+};
+
+ConnectionFactory.create = function(config, nodeFactory, callback) {
+  var factory = new ConnectionFactory(config, nodeFactory, callback);
+};
+
+ConnectionFactory.prototype = {
+  create: function(remotePeerId, callback) {
+    var self = this;
+
+    if (!Utils.isNonemptyString(remotePeerId)) {
+      callback(null);
+      return;
+    }
+
+    this._callbackQueue.enqueue({
+      peerId: remotePeerId,
+      callback: callback
+    });
+
+    this._createConnectionAndInvokeNextCallback();
+  },
+
+  _createConnectionAndInvokeNextCallback: function() {
+    var self = this;
+
+    var callbackInfo = this._callbackQueue.first();
+    if (_.isNull(callbackInfo)) {
+      return;
+    }
+
+    if (this._peerAgent.isWaitingOpeningConnection()) {
+      return;
+    }
+
+    if (this._connectionPool.has(callbackInfo.peerId)) {
+      var connection = this._connectionPool.get(callbackInfo.peerId);
+      if (connection.isAvailable()) {
+        this._invokeNextCallback(connection.getPeerId(), connection);
+        return;
+      }
+
+      this.removeConnection(connection.getPeerId());
+    }
+
+    this._peerAgent.connect(callbackInfo.peerId);
+  },
+
+  _invokeNextCallback: function(peerId, connection, error) {
+    var self = this;
+
+    _.defer(function() {
+      self._createConnectionAndInvokeNextCallback();
+    });
+
+    var callbackInfo = this._callbackQueue.dequeue();
+    if (_.isNull(callbackInfo)) {
+      console.log("Unknown situation.");
+      return;
+    }
+    if (callbackInfo.peerId !== peerId) {
+      callbackInfo.callback(null, new Error("Unknown situation."));
+      return;
+    }
+    callbackInfo.callback(connection, error);
+  },
+
+  removeConnection: function(remotePeerId) {
+    var connection = this._connectionPool.get(remotePeerId);
+    if (_.isNull(connection)) {
+      return;
+    }
+    connection.destroy();
+    this._connectionPool.remove(remotePeerId);
+  },
+
+  destroy: function() {
+    this._peerAgent.destroy();
+  },
+
+  getPeerId: function() {
+    return this._peerAgent.getPeerId();
+  }
+};
+
+module.exports = ConnectionFactory;
+
+},{"./Connection":46,"./PeerAgent":56,"./Utils":63,"underscore":43}],48:[function(require,module,exports){
+var _ = require('underscore');
+var ID = require('./ID');
+
+var Entry = function(id, value) {
+  if (_.isNull(id) || _.isUndefined(value)) {
+    throw new Error("Invalid argument.");
+  }
+
+  this.id = id;
+  this.value = value;
+};
+
+Entry.fromJson = function(json) {
+  if (!_.isObject(json)) {
+    throw new Error("invalid argument.");
+  }
+  return new Entry(ID.fromHexString(json.id), json.value);
+};
+
+Entry.prototype = {
+  equals: function(entry) {
+    if (!(entry instanceof Entry)) {
+      return false;
+    }
+
+    return this.id.equals(entry.id) && _.isEqual(this.value, entry.value);
+  },
+
+  toJson: function() {
+    return {
+      id: this.id.toHexString(),
+      value: this.value
+    };
+  }
+};
+
+module.exports = Entry;
+
+},{"./ID":52,"underscore":43}],49:[function(require,module,exports){
+var _ = require('underscore');
+var ID = require('./ID');
+var Utils = require('./Utils');
+
+var EntryList = function() {
+  this._entries = {};
+};
+
+EntryList.prototype = {
+  addAll: function(entries) {
+    var self = this;
+
+    if (_.isNull(entries)) {
+      throw new Error("Invalid argument.");
+    }
+
+    _.each(entries, function(entry) {
+      self.add(entry);
+    });
+  },
+
+  add: function(entry) {
+    if (_.isNull(entry)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (_.has(this._entries, entry.id.toHexString())) {
+      this._entries[entry.id.toHexString()].put(entry);
+    } else {
+      this._entries[entry.id.toHexString()] = new Utils.Set([entry], function(a, b) {
+        return a.equals(b);
+      });
+    }
+  },
+
+  remove: function(entry) {
+    if (_.isNull(entry)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (!_.has(this._entries, entry.id.toHexString())) {
+      return;
+    }
+
+    this._entries[entry.id.toHexString()].remove(entry);
+    if (this._entries[entry.id.toHexString()].size() === 0) {
+      delete this._entries[entry.id.toHexString()];
+    }
+  },
+
+  getEntries: function(id) {
+    if (_.isNull(id)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (_.isUndefined(id)) {
+      return this._entries;
+    }
+
+    if (_.has(this._entries, id.toHexString())) {
+      return this._entries[id.toHexString()].items();
+    } else {
+      return [];
+    }
+  },
+
+  getEntriesInInterval: function(fromId, toId) {
+    if (_.isNull(fromId) || _.isNull(toId)) {
+      throw new Error("Invalid argument.");
+    }
+
+    var result = [];
+    _.each(this._entries, function(entries, key) {
+      if (ID.fromHexString(key).isInInterval(fromId, toId)) {
+        result = result.concat(entries.items());
+      }
+    });
+
+    result = result.concat(this.getEntries(toId));
+
+    return result;
+  },
+
+  removeAll: function(entries) {
+    var self = this;
+
+    if (_.isNull(entries)) {
+      throw new Error("Invalid argument.");
+    }
+
+    _.each(entries, function(entry) {
+      self.remove(entry);
+    });
+  },
+
+  getNumberOfStoredEntries: function() {
+    return _.size(this._entries);
+  },
+
+  getStatus: function() {
+    return _.chain(this._entries)
+      .map(function(entries, key) {
+        return [
+          key,
+          _.map(entries, function(entry) {
+            return entry.value;
+          })
+        ];
+      })
+      .object()
+      .value();
+  },
+
+  toString: function() {
+    var self = this;
+
+    return "[Entries]\n" + _.chain(this._entries)
+      .keys()
+      .map(function(key) { return ID.fromHexString(key); })
+      .sort(function(a, b) { return a.compareTo(b); })
+      .map(function(id) {
+        return "[" + id.toHexString() + "]\n" +
+          _.map(self.getEntries(id), function(entry) {
+            return JSON.stringify(entry.value);
+          }).join("\n") + "\n";
+      })
+      .value()
+      .join("\n") + "\n";
+  }
+};
+
+module.exports = EntryList;
+
+},{"./ID":52,"./Utils":63,"underscore":43}],50:[function(require,module,exports){
+var _ = require('underscore');
+
+var FingerTable = function(localId, references) {
+  if (_.isNull(localId) || _.isNull(references)) {
+    throw new Error("Invalid arguments.");
+  }
+
+  this._localId = localId;
+  this._references = references;
+  this._remoteNodes = {};
+};
+
+FingerTable.prototype = {
+  _setEntry: function(index, node) {
+    if (!_.isNumber(index) || _.isNull(node)) {
+      throw new Error("Invalid arguments.");
+    }
+    if (index < 0 || index >= this._localId.getLength()) {
+      throw new Error("Invalid index.");
+    }
+
+    this._remoteNodes[index] = node;
+  },
+
+  _getEntry: function(index) {
+    if (!_.isNumber(index)) {
+      throw new Error("Invalid argument.");
+    }
+    if (index < 0 || index >= this._localId.getLength()) {
+      throw new Error("Invalid index.");
+    }
+
+    if (!_.has(this._remoteNodes, index)) {
+      return null;
+    }
+    return this._remoteNodes[index];
+  },
+
+  _unsetEntry: function(index) {
+    if (!_.isNumber(index)) {
+      throw new Error("Invalid argument.");
+    }
+    if (index < 0 || index >= this._localId.getLength()) {
+      throw new Error("Invalid index.");
+    }
+
+    var overwrittenNode = this._getEntry(index);
+
+    delete this._remoteNodes[index];
+
+    if (!_.isNull(overwrittenNode)) {
+      this._references.disconnectIfUnreferenced(overwrittenNode);
+    }
+  },
+
+  addReference: function(node) {
+    if (_.isNull(node)) {
+      throw new Error("Invalid argument.");
+    }
+
+    for (var i = 0; i < this._localId.getLength(); i++) {
+      var startOfInterval = this._localId.addPowerOfTwo(i);
+      if (!startOfInterval.isInInterval(this._localId, node.nodeId)) {
+        break;
+      }
+
+      if (_.isNull(this._getEntry(i))) {
+        this._setEntry(i, node);
+      } else if (node.nodeId.isInInterval(this._localId, this._getEntry(i).nodeId)) {
+        var oldEntry = this._getEntry(i);
+        this._setEntry(i, node);
+        this._references.disconnectIfUnreferenced(oldEntry);
+      }
+    }
+  },
+
+  getClosestPrecedingNode: function(key) {
+    if (_.isNull(key)) {
+      throw new Error("Invalid argument.");
+    }
+
+    var sortedKeys = _.chain(this._remoteNodes)
+      .keys()
+      .map(function(key) { return parseInt(key); })
+      .sortBy()
+      .value();
+    for (var i = _.size(sortedKeys) - 1; i >= 0; i--) {
+      var k = sortedKeys[i]
+      if (!_.isNull(this._getEntry(k)) &&
+          this._getEntry(k).nodeId.isInInterval(this._localId, key)) {
+        return this._getEntry(k);
+      }
+    }
+    return null;
+  },
+
+  removeReference: function(node) {
+    var self = this;
+
+    if (_.isNull(node)) {
+      throw new Error("Invalid argument.");
+    }
+
+    var referenceForReplacement = null;
+    var sortedKeys = _.chain(this._remoteNodes)
+      .keys()
+      .map(function (key) { return parseInt(key); })
+      .sortBy()
+      .value();
+    for (var i = _.size(sortedKeys) - 1; i >= 0; i--) {
+      var k = sortedKeys[i];
+      var n = this._getEntry(k);
+      if (node.equals(n)) {
+        break;
+      }
+      if (!_.isNull(n)) {
+        referenceForReplacement = n;
+      }
+    }
+
+    _.each(sortedKeys, function(key) {
+      if (node.equals(self._getEntry(key))) {
+        if (_.isNull(referenceForReplacement)) {
+          self._unsetEntry(key);
+        } else {
+          self._setEntry(key, referenceForReplacement);
+        }
+      }
+    });
+
+    _.chain(this._references.getSuccessors())
+      .reject(function(s) { return s.equals(node); })
+      .each(function(s) { self.addReference(s); });
+  },
+
+  getFirstFingerTableEntries: function(count) {
+    var result = [];
+    var sortedKeys = _.chain(this._remoteNodes)
+      .keys()
+      .map(function (key) { return parseInt(key); })
+      .sortBy()
+      .value();
+    for (var i = 0; i < _.size(sortedKeys); i++) {
+      var k = sortedKeys[i];
+      if (!_.isNull(this._getEntry(k))) {
+        if (_.isEmpty(result) || !_.last(result).equals(this._getEntry(k))) {
+          result.push(this._getEntry(k));
+        }
+      }
+      if (_.size(result) >= count) {
+        break;
+      }
+    }
+    return result;
+  },
+
+  containsReference: function(reference) {
+    if (_.isNull(reference)) {
+      throw new Error("Invalid argument.");
+    }
+
+    return _.some(this._remoteNodes, function(node) {
+      return node.equals(reference);
+    });
+  },
+
+  getStatus: function() {
+    var self = this;
+    return _(this._localId.getLength()).times(function(i) {
+      return _.isNull(self._getEntry(i)) ? null : self._getEntry(i).toNodeInfo();
+    });
+  },
+
+  toString: function() {
+    var self = this;
+
+    return "[FingerTable]\n" + _.chain(this._remoteNodes)
+      .keys()
+      .map(function(key) { return parseInt(key); })
+      .sortBy()
+      .map(function(key, i, keys) {
+        if (i === 0 || (i > 0 && !self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])))) {
+          return "[" + key + "] " + self._getEntry(key).toString();
+        }
+
+        if (i === _.size(keys) - 1 ||
+            (i < _.size(keys) - 1 && !self._getEntry(keys[i]).equals(self._getEntry(keys[i + 1])))) {
+          return "[" + key + "]";
+        }
+
+        if ((i > 1 &&
+             self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])) &&
+             !self._getEntry(keys[i]).equals(self._getEntry(keys[i - 2]))) ||
+            (i === 1 && self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])))) {
+          return "..."
+        }
+
+        if (i > 1 &&
+            self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])) &&
+            self._getEntry(keys[i]).equals(self._getEntry(keys[i - 2]))) {
+          return "";
+        }
+
+        throw new Error("Unknown situation.");
+      })
+      .reject(function(str) { return str === ""; })
+      .value()
+      .join("\n") + "\n";
+  }
+};
+
+module.exports = FingerTable;
+
+},{"underscore":43}],51:[function(require,module,exports){
+var _ = require('underscore');
+var Utils = require('./Utils');
+
+var FixFingerTask = function(localNode, references) {
+  this._localNode = localNode;
+  this._references = references;
+  this._timer = null;
+};
+
+FixFingerTask.create = function(localNode, references, config) {
+  if (!Utils.isValidNumber(config.fixFingerTaskInterval) ||
+      config.fixFingerTaskInterval < 0) {
+    config.fixFingerTaskInterval = 30000;
+  }
+
+  var task = new FixFingerTask(localNode, references);
+  var timer = setInterval(function() {
+    task.run();
+  }, config.fixFingerTaskInterval);
+  task._timer = timer;
+  return task;
+};
+
+FixFingerTask.prototype = {
+  run: function() {
+    var self = this;
+
+    var nextFingerToFix = _.random(this._localNode.nodeId.getLength() - 1);
+    var lookForID = this._localNode.nodeId.addPowerOfTwo(nextFingerToFix);
+    this._localNode.findSuccessor(lookForID, function(successor, error) {
+      if (error) {
+        console.log(error);
+      }
+
+      if (!_.isNull(successor) &&
+          !self._references.containsReference(successor)) {
+        self._references.addReference(successor);
+      }
+    });
+  },
+
+  shutdown: function() {
+    if (!_.isNull(this._timer)) {
+      clearInterval(this._timer);
+    }
+  }
+};
+
+module.exports = FixFingerTask;
+
+},{"./Utils":63,"underscore":43}],52:[function(require,module,exports){
+var _ = require('underscore');
+var CryptoJS = require('crypto-js');
+var Utils = require('./Utils');
+
+var ID = function(bytes) {
+  _.each(bytes, function(b) {
+    if (_.isNaN(b) || !_.isNumber(b) || b < 0x00 || 0xff < b) {
+      throw new Error("Invalid argument.");
+    }
+  });
+  if (_.size(bytes) !== ID._BYTE_SIZE) {
+    throw new Error("Invalid argument.");
+  }
+
+  this._bytes = _.last(bytes, ID._BYTE_SIZE);
+};
+
+ID._BYTE_SIZE = 32;
+
+ID.create = function(str) {
+  if (!Utils.isNonemptyString(str)) {
+    throw new Error("Invalid argument.");
+  }
+
+  return new ID(ID._createBytes(str));
+};
+
+ID._createBytes = function(str) {
+  var hash = CryptoJS.SHA256(str).toString(CryptoJS.enc.Hex);
+  return ID._createBytesfromHexString(hash);
+};
+
+ID._createBytesfromHexString = function(str) {
+  if (!Utils.isNonemptyString(str)) {
+    throw new Error("Invalid argument.");
+  }
+
+  return _(Math.floor(_.size(str) / 2)).times(function(i) {
+    return parseInt(str.substr(i * 2, 2), 16);
+  });
+};
+
+ID.fromHexString = function(str) {
+  return new ID(ID._createBytesfromHexString(str));
+};
+
+ID.prototype = {
+  isInInterval: function(fromId, toId) {
+    if (_.isNull(fromId) || _.isNull(toId)) {
+      throw new Error("Invalid arguments.");
+    }
+
+    if (fromId.equals(toId)) {
+      return !this.equals(fromId);
+    }
+
+    if (fromId.compareTo(toId) < 0) {
+      return (this.compareTo(fromId) > 0 && this.compareTo(toId) < 0);
+    }
+
+    var minId = new ID(_(_.size(this._bytes)).times(function() {
+      return 0x00;
+    }));
+    var maxId = new ID(_(_.size(this._bytes)).times(function() {
+      return 0xff;
+    }));
+    return ((!fromId.equals(maxId) && this.compareTo(fromId) > 0 && this.compareTo(maxId) <= 0) ||
+            (!minId.equals(toId) && this.compareTo(minId) >= 0 && this.compareTo(toId) < 0));
+  },
+
+  addPowerOfTwo: function(powerOfTwo) {
+    if (!_.isNumber(powerOfTwo)) {
+      throw new Error("Invalid argument.");
+    }
+    if (powerOfTwo < 0 || powerOfTwo >= this.getLength()) {
+      throw new Error("Power of two out of index.");
+    }
+
+    var copy = _.clone(this._bytes);
+    var indexOfBytes = _.size(this._bytes) - 1 - Math.floor(powerOfTwo / 8);
+    var valueToAdd = [1, 2, 4, 8, 16, 32, 64, 128][powerOfTwo % 8];
+    for (var i = indexOfBytes; i >= 0; i--) {
+      copy[i] += valueToAdd;
+      valueToAdd = copy[i] >> 8;
+      copy[i] &= 0xff;
+      if (valueToAdd === 0) {
+        break;
+      }
+    }
+
+    return new ID(copy);
+  },
+
+  compareTo: function(id) {
+    if (this.getLength() !== id.getLength()) {
+      throw new Error("Invalid argument.");
+    }
+
+    var bytes = _.zip(this._bytes, id._bytes);
+    for (var i = 0; i < bytes.length; i++) {
+      if (bytes[i][0] < bytes[i][1]) {
+        return -1;
+      } else if (bytes[i][0] > bytes[i][1]) {
+        return 1;
+      }
+    }
+    return 0;
+  },
+
+  equals: function(id) {
+    return this.compareTo(id) === 0;
+  },
+
+  getLength: function() {
+    return _.size(this._bytes) * 8;
+  },
+
+  toHexString: function() {
+    return _.map(this._bytes, function(b) {
+      var str = b.toString(16);
+      return b < 0x10 ? "0" + str : str;
+    }).join("");
+  }
+};
+
+module.exports = ID;
+
+},{"./Utils":63,"crypto-js":15,"underscore":43}],53:[function(require,module,exports){
+var _ = require('underscore');
+var NodeFactory = require('./NodeFactory');
+var EntryList = require('./EntryList');
+var Entry = require('./Entry');
+var ReferenceList = require('./ReferenceList');
+var ID = require('./ID');
+var StabilizeTask = require('./StabilizeTask');
+var FixFingerTask = require('./FixFingerTask');
+var CheckPredecessorTask = require('./CheckPredecessorTask');
+var Utils = require('./Utils');
+
+var LocalNode = function(chord, config) {
+  this._chord = chord;
+  this._config = config;
+  this.nodeId = null;
+  this._peerId = null;
+  this._nodeFactory = null;
+  this._tasks = {};
+  this._entries = null;
+  this._references = null;
+};
+
+LocalNode.create = function(chord, config, callback) {
+  var localNode = new LocalNode(chord, config);
+  NodeFactory.create(localNode, config, function(peerId, factory, error) {
+    if (error) {
+      callback(null, error);
+      return;
+    }
+
+    localNode.setup(peerId, factory);
+
+    callback(localNode);
+  });
+};
+
+LocalNode.prototype = {
+  setup: function(peerId, nodeFactory) {
+    this._peerId = peerId;
+    this.nodeId = ID.create(peerId);
+    this._nodeFactory = nodeFactory;
+    this._entries = new EntryList();
+    this._references = new ReferenceList(this.nodeId, this._entries, this._config);
+  },
+
+  _createTasks: function() {
+    this._tasks = {
+      stabilizeTask: StabilizeTask.create(this, this._references, this._entries, this._config),
+      fixFingerTask: FixFingerTask.create(this, this._references, this._config),
+      checkPredecessorTask: CheckPredecessorTask.create(this._references, this._config)
+    };
+  },
+
+  _shutdownTasks: function() {
+    _.invoke(this._tasks, 'shutdown');
+  },
+
+  create: function(callback) {
+    this._createTasks();
+
+    callback(this._peerId);
+  },
+
+  join: function(bootstrapId, callback) {
+    var self = this;
+
+    this._nodeFactory.create({peerId: bootstrapId}, function(bootstrapNode, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+
+      self._references.addReference(bootstrapNode);
+
+      bootstrapNode.findSuccessor(self.nodeId, function(successor, error) {
+        if (error) {
+          self._references.removeReference(bootstrapNode);
+          callback(null, error);
+          return;
+        }
+
+        self._references.addReference(successor);
+
+        var _notifyAndCopyEntries = function(node, callback) {
+          node.notifyAndCopyEntries(self, function(refs, entries, error) {
+            if (error) {
+              callback(null, null, error);
+              return;
+            }
+
+            if (_.size(refs) === 1) {
+              self._references.addReferenceAsPredecessor(successor);
+              callback(refs, entries);
+              return;
+            }
+
+            if (self.nodeId.isInInterval(refs[0].nodeId, successor.nodeId)) {
+              self._references.addReferenceAsPredecessor(refs[0]);
+              callback(refs, entries);
+              return;
+            }
+
+            self._references.addReference(refs[0]);
+            _notifyAndCopyEntries(refs[0], callback);
+          });
+        };
+        _notifyAndCopyEntries(successor, function(refs, entries, error) {
+          if (error) {
+            console.log(error);
+            self._createTasks();
+            callback(self._peerId);
+            return;
+          }
+
+          _.each(refs, function(ref) {
+            if (!_.isNull(ref) && !ref.equals(self) &&
+                !self._references.containsReference(ref)) {
+              self._references.addReference(ref);
+            }
+          });
+
+          self._entries.addAll(entries);
+
+          _.defer(function() {
+            self._chord.onentriesinserted(_.invoke(entries, 'toJson'));
+          });
+
+          self._createTasks();
+
+          callback(self._peerId);
+        });
+      });
+    });
+  },
+
+  leave: function(callback) {
+    var self = this;
+
+    this._shutdownTasks();
+
+    var successor = this._references.getSuccessor();
+    if (!_.isNull(successor) && !_.isNull(this._references.getPredecessor())) {
+      successor.leavesNetwork(this._references.getPredecessor());
+    }
+
+    this._nodeFactory.destroy();
+
+    callback();
+  },
+
+  insert: function(key, value, callback) {
+    var id = ID.create(key);
+    var entry;
+    try {
+      entry = new Entry(id, value);
+    } catch (e) {
+      callback(e);
+      return;
+    }
+    this.findSuccessor(id, function(successor, error) {
+      if (error) {
+        callback(error);
+        return;
+      }
+
+      successor.insertEntry(entry, callback);
+    });
+  },
+
+  retrieve: function(key, callback) {
+    var id = ID.create(key);
+    this.findSuccessor(id, function(successor, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+
+      successor.retrieveEntries(id, function(entries, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+
+        callback(_.map(entries, function(entry) { return entry.value; }));
+      });
+    });
+  },
+
+  remove: function(key, value, callback) {
+    var id = ID.create(key);
+    var entry;
+    try {
+      entry = new Entry(id, value);
+    } catch (e) {
+      callback(e);
+      return;
+    }
+    this.findSuccessor(id, function(successor, error) {
+      if (error) {
+        callback(error);
+        return;
+      }
+
+      successor.removeEntry(entry, callback);
+    });
+  },
+
+  findSuccessor: function(key, callback) {
+    var self = this;
+
+    if (_.isNull(key)) {
+      callback(null, new Error("Invalid argument."));
+    }
+
+    var successor = this._references.getSuccessor();
+    if (_.isNull(successor)) {
+      callback(this);
+      return;
+    }
+
+    if (key.isInInterval(this.nodeId, successor.nodeId) ||
+        key.equals(successor.nodeId)) {
+      callback(successor);
+      return;
+    }
+
+    var closestPrecedingNode = this._references.getClosestPrecedingNode(key);
+    closestPrecedingNode.findSuccessor(key, function(successor, error) {
+      if (error) {
+        console.log(error);
+        self._references.removeReference(closestPrecedingNode);
+        self.findSuccessor(key, callback);
+        return;
+      }
+
+      callback(successor);
+    });
+  },
+
+  notifyAndCopyEntries: function(potentialPredecessor, callback) {
+    var self = this;
+
+    var references = this.notify(potentialPredecessor, function(references) {
+      var entries = self._entries.getEntriesInInterval(self.nodeId, potentialPredecessor.nodeId);
+
+      callback(references, entries);
+    });
+  },
+
+  notify: function(potentialPredecessor, callback) {
+    var references = [];
+    if (!_.isNull(this._references.getPredecessor())) {
+      references.push(this._references.getPredecessor());
+    } else {
+      references.push(potentialPredecessor);
+    }
+    references = references.concat(this._references.getSuccessors());
+
+    this._references.addReferenceAsPredecessor(potentialPredecessor);
+
+    callback(references);
+  },
+
+  leavesNetwork: function(predecessor) {
+    this._references.removeReference(this._references.getPredecessor());
+    this._references.addReferenceAsPredecessor(predecessor);
+  },
+
+  insertReplicas: function(replicas) {
+    var self = this;
+
+    this._entries.addAll(replicas);
+
+    _.defer(function() {
+      self._chord.onentriesinserted(_.invoke(replicas, 'toJson'));
+    });
+  },
+
+  removeReplicas: function(sendingNodeId, replicas) {
+    var self = this;
+
+    if (_.size(replicas) !== 0) {
+      this._entries.removeAll(replicas);
+
+      _.defer(function() {
+        self._chord.onentriesremoved(_.invoke(replicas, 'toJson'));
+      });
+
+      return;
+    }
+
+    var allReplicasToRemove = this._entries.getEntriesInInterval(this.nodeId, sendingNodeId);
+    this._entries.removeAll(allReplicasToRemove);
+
+    _.defer(function() {
+      self._chord.onentriesremoved(_.invoke(allReplicasToRemove, 'toJson'));
+    });
+  },
+
+  insertEntry: function(entry, callback) {
+    var self = this;
+
+    if (!_.isNull(this._references.getPredecessor()) &&
+        !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+      this._references.getPredecessor().insertEntry(entry, callback);
+      return;
+    }
+
+    this._entries.add(entry);
+
+    _.defer(function() {
+      self._chord.onentriesinserted([entry.toJson()]);
+    });
+
+    _.each(this._references.getSuccessors(), function(successor) {
+      successor.insertReplicas([entry]);
+    });
+
+    callback(true);
+  },
+
+  retrieveEntries: function(id, callback) {
+    if (!_.isNull(this._references.getPredecessor()) &&
+        !id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+      this._references.getPredecessor().retrieveEntries(id, callback);
+      return;
+    }
+
+    callback(this._entries.getEntries(id));
+  },
+
+  removeEntry: function(entry, callback) {
+    var self = this;
+
+    if (!_.isNull(this._references.getPredecessor()) &&
+        !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+      this._references.getPredecessor().removeEntry(entry, callback);
+      return;
+    }
+
+    this._entries.remove(entry);
+
+    _.defer(function() {
+      self._chord.onentriesremoved([entry.toJson()]);
+    });
+
+    _.each(this._references.getSuccessors(), function(successor) {
+      successor.removeReplicas(self.nodeId, [entry]);
+    });
+
+    callback(true);
+  },
+
+  getStatuses: function() {
+    var ret = this._references.getStatuses();
+    ret['entries'] = this._entries.getStatus();
+    return ret;
+  },
+
+  getPeerId: function() {
+    return this._peerId;
+  },
+
+  toNodeInfo: function() {
+    return {
+      nodeId: this.nodeId.toHexString(),
+      peerId: this._peerId
+    };
+  },
+
+  equals: function(node) {
+    if (_.isNull(node)) {
+      return false;
+    }
+    return this.nodeId.equals(node.nodeId);
+  },
+
+  toString: function() {
+    return this.nodeId.toHexString() + " (" + this._peerId + ")";
+  },
+
+  toDisplayString: function() {
+    return [
+      this._references.toString(),
+      this._entries.toString()
+    ].join("\n") + "\n";
+  }
+};
+
+module.exports = LocalNode;
+
+},{"./CheckPredecessorTask":44,"./Entry":48,"./EntryList":49,"./FixFingerTask":51,"./ID":52,"./NodeFactory":55,"./ReferenceList":57,"./StabilizeTask":61,"./Utils":63,"underscore":43}],54:[function(require,module,exports){
+var _ = require('underscore');
+var ID = require('./ID');
+var Request = require('./Request');
+var Entry = require('./Entry');
+var Utils = require('./Utils');
+
+var Node = function(nodeInfo, nodeFactory, connectionFactory, requestHandler, config) {
+  if (!Node.isValidNodeInfo(nodeInfo)) {
+    throw new Error("Invalid arguments.");
+  }
+
+  if (!Utils.isValidNumber(config.requestTimeout) ||
+      config.requestTimeout < 0) {
+    config.requestTimeout = 180000;
+  }
+
+  this._peerId = nodeInfo.peerId;
+  this.nodeId = ID.create(nodeInfo.peerId);
+  this._nodeFactory = nodeFactory;
+  this._connectionFactory = connectionFactory;
+  this._requestHandler = requestHandler;
+  this._config = config;
+};
+
+Node.isValidNodeInfo = function(nodeInfo) {
+  if (!_.isObject(nodeInfo)) {
+    return false;
+  }
+  if (!Utils.isNonemptyString(nodeInfo.peerId)) {
+    return false;
+  }
+  return true;
+};
+
+Node.prototype = {
+  findSuccessor: function(key, callback) {
+    var self = this;
+
+    if (!(key instanceof ID)) {
+      callback(null);
+      return;
+    }
+
+    this._sendRequest('FIND_SUCCESSOR', {
+      key: key.toHexString()
+    }, {
+      success: function(result) {
+        var nodeInfo = result.successorNodeInfo;
+        self._nodeFactory.create(nodeInfo, callback);
+      },
+
+      error: function(error) {
+        callback(null, error);
+      }
+    });
+  },
+
+  notifyAndCopyEntries: function(potentialPredecessor, callback) {
+    var self = this;
+
+    this._sendRequest('NOTIFY_AND_COPY', {
+      potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
+    }, {
+      success: function(result) {
+        if (!_.isArray(result.referencesNodeInfo) || !_.isArray(result.entries)) {
+          callback(null, null);
+          return;
+        }
+
+        self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
+          var entries = _.chain(result.entries)
+            .map(function(entry) {
+              try {
+                return Entry.fromJson(entry);
+              } catch (e) {
+                return null;
+              }
+            })
+            .reject(function(entry) { return _.isNull(entry); })
+            .value();
+
+          callback(references, entries);
+        });
+      },
+
+      error: function(error) {
+        callback(null, null, error);
+      }
+    });
+  },
+
+  notify: function(potentialPredecessor, callback) {
+    var self = this;
+
+    this._sendRequest('NOTIFY', {
+      potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
+    }, {
+      success: function(result) {
+        if (!_.isArray(result.referencesNodeInfo)) {
+          callback(null);
+          return;
+        }
+
+        self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
+          callback(references);
+        });
+      },
+
+      error: function(error) {
+        callback(null, error);
+      }
+    });
+  },
+
+  leavesNetwork: function(predecessor) {
+    var self = this;
+
+    if (_.isNull(predecessor)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this._sendRequest('LEAVES_NETWORK', {
+      predecessorNodeInfo: predecessor.toNodeInfo()
+    });
+  },
+
+  ping: function(callback) {
+    this._sendRequest('PING', {}, {
+      success: function(result) {
+        callback(true);
+      },
+
+      error: function(error) {
+        callback(false, error);
+      }
+    });
+  },
+
+  insertReplicas: function(replicas) {
+    this._sendRequest('INSERT_REPLICAS', {replicas: _.invoke(replicas, 'toJson')});
+  },
+
+  removeReplicas: function(sendingNodeId, replicas) {
+    this._sendRequest('REMOVE_REPLICAS', {
+      sendingNodeId: sendingNodeId.toHexString(),
+      replicas: _.invoke(replicas, 'toJson')
+    });
+  },
+
+  insertEntry: function(entry, callback) {
+    this._sendRequest('INSERT_ENTRY', {
+      entry: entry.toJson()
+    }, {
+      success: function(result) {
+        callback();
+      },
+
+      error: function(error) {
+        callback(error);
+      }
+    });
+  },
+
+  retrieveEntries: function(id, callback) {
+    var self = this;
+
+    this._sendRequest('RETRIEVE_ENTRIES', {
+      id: id.toHexString()
+    }, {
+      success: function(result) {
+        if (!_.isArray(result.entries)) {
+          callback(null, new Error("Received invalid data from " + self._peerId));
+          return;
+        }
+
+        var entries = _.chain(result.entries)
+          .map(function(entry) {
+            try {
+              return Entry.fromJson(entry);
+            } catch (e) {
+              return null;
+            }
+          })
+          .reject(function(entry) { return _.isNull(entry); })
+          .value();
+        callback(entries);
+      },
+
+      error: function(error) {
+        callback(null, error);
+      }
+    });
+  },
+
+  removeEntry: function(entry, callback) {
+    this._sendRequest('REMOVE_ENTRY', {
+      entry: entry.toJson()
+    }, {
+      success: function(result) {
+        callback();
+      },
+
+      error: function(error) {
+        callback(error);
+      }
+    });
+  },
+
+  _sendRequest: function(method, params, callbacks) {
+    var self = this;
+
+    this._connectionFactory.create(this._peerId, function(connection, error) {
+      if (error) {
+        if (!_.isUndefined(callbacks)) {
+          callbacks.error(error);
+        }
+        return;
+      }
+
+      var request = Request.create(method, params);
+
+      if (!_.isUndefined(callbacks)) {
+        var timer = setTimeout(function() {
+          var callback = self._nodeFactory.deregisterCallback(request.requestId);
+          if (!_.isNull(callback)) {
+            callbacks.error(new Error(method + " request to " + self._peerId + " timed out."));
+          }
+        }, self._config.requestTimeout);
+
+        self._nodeFactory.registerCallback(request.requestId, _.once(function(response) {
+          clearTimeout(timer);
+
+          if (response.status !== 'SUCCESS') {
+            callbacks.error(new Error(response.result.message));
+            return;
+          }
+
+          callbacks.success(response.result);
+        }));
+      }
+
+      try {
+        connection.send(request);
+      } finally {
+        connection.close();
+      }
+    });
+  },
+
+  onRequestReceived: function(request) {
+    var self = this;
+
+    this._requestHandler.handle(request, function(response) {
+      self._connectionFactory.create(self._peerId, function(connection, error) {
+        if (error) {
+          return;
+        }
+
+        try {
+          connection.send(response);
+        } finally {
+          connection.close();
+        }
+      });
+    });
+  },
+
+  onResponseReceived: function(response) {
+    var callback = this._nodeFactory.deregisterCallback(response.requestId);
+    if (!_.isNull(callback)) {
+      callback(response);
+    }
+  },
+
+  disconnect: function() {
+    this._connectionFactory.removeConnection(this._peerId);
+  },
+
+  getPeerId: function() {
+    return this._peerId;
+  },
+
+  toNodeInfo: function() {
+    return {
+      nodeId: this.nodeId.toHexString(),
+      peerId: this._peerId
+    };
+  },
+
+  equals: function(node) {
+    if (_.isNull(node)) {
+      return false;
+    }
+    return this.nodeId.equals(node.nodeId);
+  },
+
+  toString: function() {
+    return this.nodeId.toHexString() + " (" + this._peerId + ")";
+  }
+};
+
+module.exports = Node;
+
+},{"./Entry":48,"./ID":52,"./Request":58,"./Utils":63,"underscore":43}],55:[function(require,module,exports){
+var _ = require('underscore');
+var Node = require('./Node');
+var ConnectionFactory = require('./ConnectionFactory');
+var RequestHandler = require('./RequestHandler');
+var ID = require('./ID');
+var Utils = require('./Utils');
+
+var NodeFactory = function(localNode, config) {
+  var self = this;
+
+  if (_.isNull(localNode)) {
+    throw new Error("Invalid arguments.");
+  }
+
+  this._localNode = localNode;
+  this._config = config;
+  this._connectionFactory = null;
+  this._requestHandler = new RequestHandler(localNode, this);
+  this._callbacks = {};
+};
+
+NodeFactory.create = function(localNode, config, callback) {
+  if (_.isNull(localNode)) {
+    callback(null, null);
+  }
+
+  var nodeFactory = new NodeFactory(localNode, config);
+  ConnectionFactory.create(config, nodeFactory, function(connectionFactory, error) {
+    if (error) {
+      callback(null, null, error);
+      return;
+    }
+
+    nodeFactory._connectionFactory = connectionFactory;
+
+    callback(connectionFactory.getPeerId(), nodeFactory);
+  });
+};
+
+NodeFactory.prototype = {
+  create: function(nodeInfo, callback) {
+    var self = this;
+
+    if (!Node.isValidNodeInfo(nodeInfo)) {
+      callback(null, new Error("Invalid node info."));
+      return;
+    }
+
+    if (this._localNode.nodeId.equals(ID.create(nodeInfo.peerId))) {
+      callback(this._localNode);
+      return;
+    }
+
+    var node = new Node(nodeInfo, this, this._connectionFactory, this._requestHandler, this._config);
+
+    callback(node);
+  },
+
+  createAll: function(nodesInfo, callback) {
+    var self = this;
+
+    if (_.isEmpty(nodesInfo)) {
+      callback([]);
+      return;
+    }
+    this.create(_.first(nodesInfo), function(node, error) {
+      self.createAll(_.rest(nodesInfo), function(nodes) {
+        if (!error) {
+          callback([node].concat(nodes));
+        } else {
+          console.log(error);
+          callback(nodes);
+        }
+      });
+    });
+  },
+
+  onRequestReceived: function(peerId, request) {
+    this.create({peerId: peerId}, function(node, error) {
+      if (error) {
+        console.log(error);
+        return;
+      }
+      node.onRequestReceived(request);
+    });
+  },
+
+  onResponseReceived: function(peerId, response) {
+    this.create({peerId: peerId}, function(node, error) {
+      if (error) {
+        console.log(error);
+        return;
+      }
+      node.onResponseReceived(response);
+    });
+  },
+
+  registerCallback: function(key, callback) {
+    this._callbacks[key] = callback;
+  },
+
+  deregisterCallback: function(key) {
+    if (!_.has(this._callbacks, key)) {
+      return null;
+    }
+    var callback = this._callbacks[key];
+    delete this._callbacks[key];
+    return callback;
+  },
+
+  destroy: function() {
+    this._connectionFactory.destroy();
+  }
+};
+
+module.exports = NodeFactory;
+
+},{"./ConnectionFactory":47,"./ID":52,"./Node":54,"./RequestHandler":59,"./Utils":63,"underscore":43}],56:[function(require,module,exports){
+var _ = require('underscore');
+var Peer = require('peerjs');
+var Utils = require('./Utils');
+
+var PeerAgent = function(config, callbacks) {
+  var self = this;
+
+  if (!_.isObject(config.peer)) {
+    config.peer = {id: undefined, options: {}};
+  }
+  if (!_.isObject(config.peer.options)) {
+    config.peer.options = {};
+  }
+  if (!Utils.isValidNumber(config.connectRateLimit) ||
+      config.connectRateLimit < 0) {
+    config.connectRateLimit = 3000;
+  }
+  if (!Utils.isValidNumber(config.connectionOpenTimeout) ||
+      config.connectionOpenTimeout < 0) {
+    config.connectionOpenTimeout = 30000;
+  }
+
+  if (!_.isString(config.peer.id)) {
+    this._peer = new Peer(config.peer.options);
+  } else {
+    this._peer = new Peer(config.peer.id, config.peer.options);
+  }
+  this._config = config;
+  this._callbacks = callbacks;
+  this._waitingTimer = null;
+  this.connect = _.throttle(this.connect, config.connectRateLimit);
+
+  var onPeerSetup = _.once(callbacks.onPeerSetup);
+
+  this._peer.on('open', function(id) {
+    self._peer.on('connection', function(conn) {
+      callbacks.onConnection(conn.peer, conn);
+    });
+
+    self._peer.on('close', function() {
+      callbacks.onPeerClosed();
+    });
+
+    onPeerSetup(id);
+  });
+
+  this._peer.on('error', function(error) {
+    var match = error.message.match(/Could not connect to peer (\w+)/);
+    if (match) {
+      if (!self.isWaitingOpeningConnection()) {
+        return;
+      }
+
+      clearTimeout(self._waitingTimer);
+      self._waitingTimer = null;
+
+      var peerId = match[1];
+      callbacks.onConnectionOpened(peerId, null, error);
+      return;
+    }
+
+    console.log(error);
+    onPeerSetup(null, error);
+  });
+};
+
+PeerAgent.prototype = {
+  connect: function(peerId) {
+    var self = this;
+
+    var conn = this._peer.connect(peerId);
+    if (!conn) {
+      var error = new Error("Failed to open connection to " + peerId + ".");
+      this._callbacks.onConnectionOpened(peerId, null, error);
+      return;
+    }
+
+    this._waitingTimer = setTimeout(function() {
+      if (!self.isWaitingOpeningConnection()) {
+        return;
+      }
+
+      self._waitingTimer = null;
+
+      var error = new Error("Opening connection to " + peerId + " timed out.");
+      self._callbacks.onConnectionOpened(peerId, null, error);
+    }, this._config.connectionOpenTimeout);
+
+    conn.on('open', function() {
+      if (!self.isWaitingOpeningConnection()) {
+        conn.close();
+        return;
+      }
+
+      clearTimeout(self._waitingTimer);
+      self._waitingTimer = null;
+
+      self._callbacks.onConnectionOpened(peerId, conn);
+    });
+  },
+
+  isWaitingOpeningConnection: function() {
+    return !_.isNull(this._waitingTimer);
+  },
+
+  destroy: function() {
+    this._peer.destroy();
+  },
+
+  getPeerId: function() {
+    return this._peer.id;
+  }
+};
+
+module.exports = PeerAgent;
+
+},{"./Utils":63,"peerjs":64,"underscore":43}],57:[function(require,module,exports){
+var _ = require('underscore');
+var FingerTable = require('./FingerTable');
+var SuccessorList = require('./SuccessorList');
+
+var ReferenceList = function(localId, entries, config) {
+  if (_.isNull(localId) || _.isNull(entries)) {
+    throw new Error("Invalid arguments.");
+  }
+
+  this._localId = localId;
+  this._fingerTable = new FingerTable(localId, this);
+  this._successors = new SuccessorList(localId, entries, this, config);
+  this._predecessor = null;
+  this._entries = entries;
+};
+
+ReferenceList.prototype = {
+  addReference: function(reference) {
+    if (_.isNull(reference)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (reference.nodeId.equals(this._localId)) {
+      return;
+    }
+
+    this._fingerTable.addReference(reference);
+    this._successors.addSuccessor(reference);
+  },
+
+  removeReference: function(reference) {
+    if (_.isNull(reference)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this._fingerTable.removeReference(reference);
+    this._successors.removeReference(reference);
+
+    if (reference.equals(this.getPredecessor())) {
+      this._predecessor = null;
+    }
+
+    this.disconnectIfUnreferenced(reference);
+  },
+
+  getSuccessor: function() {
+    return this._successors.getDirectSuccessor();
+  },
+
+  getSuccessors: function() {
+    return this._successors.getReferences();
+  },
+
+  getClosestPrecedingNode: function(key) {
+    if (_.isNull(key)) {
+      throw new Error("Invalid argument.");
+    }
+
+    var foundNodes = [];
+
+    var closestNodeFT = this._fingerTable.getClosestPrecedingNode(key);
+    if (!_.isNull(closestNodeFT)) {
+      foundNodes.push(closestNodeFT);
+    }
+    var closestNodeSL = this._successors.getClosestPrecedingNode(key);
+    if (!_.isNull(closestNodeSL)) {
+      foundNodes.push(closestNodeSL);
+    }
+    if (!_.isNull(this._predecessor) &&
+        key.isInInterval(this._predecessor.nodeId, this._localId)) {
+      foundNodes.push(this._predecessor);
+    }
+
+    foundNodes.sort(function(a, b) {
+        return a.nodeId.compareTo(b.nodeId);
+    });
+    var keyIndex = _.chain(foundNodes)
+      .map(function(node) { return node.nodeId; })
+      .sortedIndex(function(id) { return id.equals(key); })
+      .value();
+    var index = (_.size(foundNodes) + (keyIndex - 1)) % _.size(foundNodes);
+    var closestNode = foundNodes[index];
+    if (_.isNull(closestNode)) {
+      throw new Error("Closest node must not be null.");
+    }
+    return closestNode;
+  },
+
+  getPredecessor: function() {
+    return this._predecessor;
+  },
+
+  addReferenceAsPredecessor: function(potentialPredecessor) {
+    if (_.isNull(potentialPredecessor)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (potentialPredecessor.nodeId.equals(this._localId)) {
+      return;
+    }
+
+    if (_.isNull(this._predecessor) ||
+        potentialPredecessor.nodeId.isInInterval(this._predecessor.nodeId, this._localId)) {
+      this.setPredecessor(potentialPredecessor);
+    }
+
+    this.addReference(potentialPredecessor);
+  },
+
+  setPredecessor: function(potentialPredecessor) {
+    if (_.isNull(potentialPredecessor)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (potentialPredecessor.nodeId.equals(this._localId)) {
+      return;
+    }
+
+    if (potentialPredecessor.equals(this._predecessor)) {
+      return;
+    }
+
+    var formerPredecessor = this._predecessor;
+    this._predecessor = potentialPredecessor;
+    if (!_.isNull(formerPredecessor)) {
+      this.disconnectIfUnreferenced(formerPredecessor);
+
+      var size = this._successors.getSize();
+      if (this._successors.getCapacity() === size) {
+        var lastSuccessor = _.last(this._successors.getReferences());
+        lastSuccessor.removeReplicas(this._predecessor.nodeId, []);
+      }
+    } else {
+      var entriesToRep = this._entries.getEntriesInInterval(this._predecessor.nodeId, this._localId);
+      var successors = this._successors.getReferences();
+      _.each(successors, function(successor) {
+        successor.insertReplicas(entriesToRep);
+      });
+    }
+  },
+
+  disconnectIfUnreferenced: function(removedReference) {
+    if (_.isNull(removedReference)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (!this.containsReference(removedReference)) {
+      removedReference.disconnect();
+    }
+  },
+
+  getFirstFingerTableEntries: function(count) {
+    return this._fingerTable.getFirstFingerTableEntries(count);
+  },
+
+  containsReference: function(reference) {
+    if (_.isNull(reference)) {
+      throw new Error("Invalid argurment.");
+    }
+
+    return (this._fingerTable.containsReference(reference) ||
+            this._successors.containsReference(reference) ||
+            reference.equals(this._predecessor));
+  },
+
+  getStatuses: function() {
+    return {
+      successors: this._successors.getStatus(),
+      fingerTable: this._fingerTable.getStatus(),
+      predecessor: _.isNull(this.getPredecessor()) ? null : this.getPredecessor().toNodeInfo()
+    };
+  },
+
+  toString: function() {
+    return [
+      this._successors.toString(),
+      "[Predecessor]\n" + (_.isNull(this.getPredecessor()) ? "" : this.getPredecessor().toString()) + "\n",
+      this._fingerTable.toString()
+    ].join("\n") + "\n";
+  }
+};
+
+module.exports = ReferenceList;
+
+},{"./FingerTable":50,"./SuccessorList":62,"underscore":43}],58:[function(require,module,exports){
+var _ = require('underscore');
+var CryptoJS = require('crypto-js');
+var Response = require('./Response');
+var Utils = require('./Utils');
+
+var Request = function(method, params, requestId, timestamp) {
+  if (!Utils.isNonemptyString(method) || !_.isObject(params) ||
+      !Utils.isNonemptyString(requestId) || !_.isNumber(timestamp)) {
+    throw new Error("Invalid argument.");
+  }
+
+  this.method = method;
+  this.params = params;
+  this.requestId = requestId;
+  this.timestamp = timestamp;
+};
+
+Request.create = function(method, params) {
+  return new Request(method, params, Request._createId(), _.now());
+};
+
+Request._createId = function() {
+  return CryptoJS.SHA256(Math.random().toString()).toString();
+};
+
+Request.isRequest = function(data) {
+  return !Response.isResponse(data);
+};
+
+Request.fromJson = function(json) {
+  if (!_.isObject(json)) {
+    throw new Error("Invalid argument.");
+  }
+  return new Request(json.method, json.params, json.requestId, json.timestamp);
+};
+
+Request.prototype = {
+  toJson: function() {
+    return {
+      method: this.method,
+      params: this.params,
+      requestId: this.requestId,
+      timestamp: this.timestamp
+    };
+  }
+};
+
+module.exports = Request;
+
+},{"./Response":60,"./Utils":63,"crypto-js":15,"underscore":43}],59:[function(require,module,exports){
+var _ = require('underscore');
+var ID = require('./ID');
+var Response = require('./Response');
+var Entry = require('./Entry');
+var Utils = require('./Utils');
+
+var RequestHandler = function(localNode, nodeFactory) {
+  this._localNode = localNode;
+  this._nodeFactory = nodeFactory;
+}
+
+RequestHandler.prototype = {
+  handle: function(request, callback) {
+    var self = this;
+
+    switch (request.method) {
+    case 'FIND_SUCCESSOR':
+      if (!Utils.isNonemptyString(request.params.key)) {
+        this._sendFailureResponse(request, callback);
+        return;
+      }
+
+      var key = ID.fromHexString(request.params.key);
+      this._localNode.findSuccessor(key, function(successor, error) {
+        if (error) {
+          console.log(error);
+          self._sendFailureResponse(request, callback);
+          return;
+        }
+
+        self._sendSuccessResponse({
+          successorNodeInfo: successor.toNodeInfo()
+        }, request, callback);
+      });
+      break;
+
+    case 'NOTIFY_AND_COPY':
+      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+        if (error) {
+          console.log(error);
+          this._sendFailureResponse(request, callback);
+          return;
+        }
+
+        self._localNode.notifyAndCopyEntries(node, function(references, entries) {
+          if (_.isNull(references) || _.isNull(entries)) {
+            self._sendFailureResponse(request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            referencesNodeInfo: _.invoke(references, 'toNodeInfo'),
+            entries: _.invoke(entries, 'toJson')
+          }, request, callback);
+        });
+      });
+      break;
+
+    case 'NOTIFY':
+      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+        if (error) {
+          console.log(error);
+          self._sendFailureResponse(request, callback);
+          return;
+        }
+
+        self._localNode.notify(node, function(references) {
+          if (_.isNull(references)) {
+            self._sendFailureResponse(request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            referencesNodeInfo: _.invoke(references, 'toNodeInfo')
+          }, request, callback);
+        });
+      });
+      break;
+
+    case 'PING':
+      self._sendSuccessResponse({}, request, callback);
+      break;
+
+    case 'INSERT_REPLICAS':
+      if (!_.isArray(request.params.replicas)) {
+        return;
+      }
+      var replicas = _.chain(request.params.replicas)
+        .map(function(replica) {
+          try {
+            return Entry.fromJson(replica);
+          } catch (e) {
+            return null;
+          }
+        })
+        .reject(function(replica) { return _.isNull(replica); })
+        .value();
+      self._localNode.insertReplicas(replicas);
+      break;
+
+    case 'REMOVE_REPLICAS':
+      var sendingNodeId;
+      try {
+          sendingNodeId = ID.fromHexString(request.params.sendingNodeId);
+      } catch (e) {
+        return;
+      }
+      if (!_.isArray(request.params.replicas)) {
+        return;
+      }
+      var replicas = _.chain(request.params.replicas)
+        .map(function(replica) {
+          try {
+            return Entry.fromJson(replica);
+          } catch (e) {
+            return null;
+          }
+        })
+        .reject(function(replica) { return _.isNull(replica); })
+        .value();
+      self._localNode.removeReplicas(sendingNodeId, replicas);
+      break;
+
+    case 'INSERT_ENTRY':
+      var entry;
+      try {
+        entry = Entry.fromJson(request.params.entry);
+      } catch (e) {
+        self._sendFailureResponse(request, callback);;
+        return;
+      }
+      self._localNode.insertEntry(entry, function(inserted) {
+        if (!inserted) {
+          self._sendFailureResponse(request, callback);
+        } else {
+          self._sendSuccessResponse({}, request, callback);
+        }
+      });
+      break;
+
+    case 'RETRIEVE_ENTRIES':
+      var id;
+      try {
+        id = ID.fromHexString(request.params.id);
+      } catch (e) {
+        self._sendFailureResponse(request, callback);
+        return;
+      }
+      self._localNode.retrieveEntries(id, function(entries) {
+        if (_.isNull(entries)) {
+          self._sendFailureResponse(request, callback);
+        } else {
+          self._sendSuccessResponse({
+            entries: _.invoke(entries, 'toJson')
+          }, request, callback);
+        }
+      });
+      break;
+
+    case 'REMOVE_ENTRY':
+      var entry;
+      try {
+        entry = Entry.fromJson(request.params.entry);
+      } catch (e) {
+        self._sendFailureResponse(request, callback);
+        return;
+      }
+      self._localNode.removeEntry(entry, function(removed) {
+        if (!removed) {
+          self._sendFailureResponse(request, callback);
+        } else {
+          self._sendSuccessResponse({}, request, callback);
+        }
+      });
+      break;
+
+    case 'SHUTDOWN':
+      break;
+
+    case 'LEAVES_NETWORK':
+      var predecessorNodeInfo = request.params.predecessorNodeInfo;
+      this._nodeFactory.create(predecessorNodeInfo, function(predecessor, error) {
+        if (error) {
+          console.log(error);
+          return;
+        }
+
+        self._localNode.leavesNetwork(predecessor);
+      });
+      break;
+
+    default:
+      this._sendFailureResponse(request, callback);
+      break;
+    }
+  },
+
+  _sendSuccessResponse: function(result, request, callback) {
+    var self = this;
+
+    var response;
+    try {
+      response = Response.create('SUCCESS', result, request);
+    } catch (e){
+      this._sendFailureResponse(request, callback);
+      return;
+    }
+
+    callback(response);
+  },
+
+  _sendFailureResponse: function(request, callback) {
+    var response;
+    try {
+      response = Response.create('FAILED', {}, request);
+    } catch (e) {
+      callback(null);
+      return;
+    }
+
+    callback(response);
+  }
+};
+
+module.exports = RequestHandler;
+
+},{"./Entry":48,"./ID":52,"./Response":60,"./Utils":63,"underscore":43}],60:[function(require,module,exports){
+var _ = require('underscore');
+var Utils = require('./Utils');
+
+var Response = function(status, method, result, requestId, timestamp) {
+  if (!Utils.isNonemptyString(status) ||
+      !Utils.isNonemptyString(method) ||
+      !_.isObject(result) || !Utils.isNonemptyString(requestId) ||
+      !_.isNumber(timestamp)) {
+    throw new Error("Invalid argument.");
+  }
+
+  this.status = status;
+  this.method = method;
+  this.result = result;
+  this.requestId = requestId;
+  this.timestamp = timestamp;
+};
+
+Response.create = function(status, result, request) {
+  return new Response(status, request.method, result, request.requestId, _.now());
+};
+
+Response.isResponse = function(data) {
+  if (!_.isObject(data)) {
+    return false;
+  }
+  if (!Utils.isNonemptyString(data.status)) {
+    return false;
+  }
+  return true;
+};
+
+Response.fromJson = function(json) {
+  if (!_.isObject(json)) {
+    throw new Error("Invalid argument.");
+  }
+  return new Response(json.status, json.method, json.result, json.requestId, json.timestamp);
+};
+
+Response.prototype = {
+  toJson: function() {
+    return {
+      status: this.status,
+      method: this.method,
+      result: this.result,
+      requestId: this.requestId,
+      timestamp: this.timestamp
+    };
+  },
+};
+
+module.exports = Response;
+
+},{"./Utils":63,"underscore":43}],61:[function(require,module,exports){
+var _ = require('underscore');
+var Utils = require('./Utils');
+
+var StabilizeTask = function(localNode, references, entries) {
+  this._localNode = localNode;
+  this._references = references;
+  this._entries = entries;
+  this._timer = null;
+};
+
+StabilizeTask.create = function(localNode, references, entries, config) {
+  if (!Utils.isValidNumber(config.stabilizeTaskInterval) ||
+      config.stabilizeTaskInterval < 0) {
+    config.stabilizeTaskInterval = 30000;
+  }
+
+  var task = new StabilizeTask(localNode, references, entries);
+  var timer = setInterval(function() {
+    task.run();
+  }, config.stabilizeTaskInterval);
+  task._timer = timer;
+  return task;
+};
+
+StabilizeTask.prototype = {
+  run: function() {
+    var self = this;
+
+    var successors = this._references.getSuccessors();
+    if (_.isEmpty(successors)) {
+      return;
+    }
+    var successor = _.first(successors);
+
+    successor.notify(this._localNode, function(references, error) {
+      if (error) {
+        console.log(error);
+        self._references.removeReference(successor);
+        return;
+      }
+
+      var RemoveUnreferencedSuccessorsAndAddReferences = function(references) {
+        _.chain(successors)
+          .reject(function(s) {
+            return (s.equals(successor) ||
+                    (!_.isNull(self._references.getPredecessor()) &&
+                     s.equals(self._references.getPredecessor())) ||
+                    _.some(references, function(r) { return r.equals(s); }));
+          })
+          .each(function(s) {
+            self._references.removeReference(s);
+          });
+
+        _.each(references, function(ref) {
+          self._references.addReference(ref);
+        });
+
+        var currentSuccessor = self._references.getSuccessor();
+        if (!currentSuccessor.equals(successor)) {
+          currentSuccessor.ping(function(isAlive, error) {
+            if (error) {
+              console.log(error);
+              self._references.removeReference(currentSuccessor);
+            }
+          });
+        }
+      };
+
+      if (_.size(references) > 0 && !_.isNull(references[0])) {
+        if (!self._localNode.equals(references[0])) {
+          successor.notifyAndCopyEntries(self._localNode, function(references, entries, error) {
+            if (error) {
+              console.log(error);
+              return;
+            }
+
+            self._entries.addAll(entries);
+
+            RemoveUnreferencedSuccessorsAndAddReferences(references);
+          });
+        }
+      }
+
+      RemoveUnreferencedSuccessorsAndAddReferences(references);
+    });
+  },
+
+  shutdown: function() {
+    if (!_.isNull(this._timer)) {
+      clearInterval(this._timer);
+    }
+  }
+};
+
+module.exports = StabilizeTask;
+
+},{"./Utils":63,"underscore":43}],62:[function(require,module,exports){
+var _ = require('underscore');
+var Utils = require('./Utils');
+
+var SuccessorList = function(localId, entries, references, config) {
+  if (_.isNull(localId) || _.isNull(entries) || _.isNull(references)) {
+    throw new Error("Invalid argument.");
+  }
+
+  if (!Utils.isValidNumber(config.numberOfEntriesInSuccessorList) ||
+      config.numberOfEntriesInSuccessorList < 1) {
+    config.numberOfEntriesInSuccessorList = 3;
+  }
+
+  this._localId = localId;
+  this._capacity = config.numberOfEntriesInSuccessorList;
+  this._entries = entries;
+  this._references = references;
+  this._successors = [];
+};
+
+SuccessorList.prototype = {
+  addSuccessor: function(node) {
+    if (_.isNull(node)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (this.containsReference(node)) {
+      return;
+    }
+
+    if (_.size(this._successors) >= this._capacity &&
+        node.nodeId.isInInterval(_.last(this._successors).nodeId, this._localId)) {
+      return;
+    }
+
+    var inserted = false;
+    for (var i = 0; i < _.size(this._successors); i++) {
+      if (node.nodeId.isInInterval(this._localId, this._successors[i].nodeId)) {
+        Utils.insert(this._successors, i, node);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      this._successors.push(node);
+      inserted = true;
+    }
+
+    var fromId;
+    var predecessor = this._references.getPredecessor();
+    if (!_.isNull(predecessor)) {
+      fromId = predecessor.nodeId;
+    } else {
+      var precedingNode = this._references.getClosestPrecedingNode(this._localId);
+      if (!_.isNull(precedingNode)) {
+        fromId = precedingNode.nodeId;
+      } else {
+        fromId = this._localId;
+      }
+    }
+    var toId = this._localId;
+    var entriesToReplicate = this._entries.getEntriesInInterval(fromId, toId);
+    node.insertReplicas(entriesToReplicate);
+
+    if (_.size(this._successors) > this._capacity) {
+      var nodeToDelete = this._successors.pop();
+
+      nodeToDelete.removeReplicas(this._localId, []);
+
+      this._references.disconnectIfUnreferenced(nodeToDelete);
+    }
+  },
+
+  getDirectSuccessor: function() {
+    if (_.isEmpty(this._successors)) {
+return null;
+    }
+    return this._successors[0];
+  },
+
+  getClosestPrecedingNode: function(idToLookup) {
+    if (_.isNull(idToLookup)) {
+      throw new Error("Invalid argument.");
+    }
+
+    for (var i = _.size(this._successors) - 1; i >= 0; i--) {
+      if (this._successors[i].nodeId.isInInterval(this._localId, idToLookup)) {
+        return this._successors[i];
+      }
+    }
+    return null;
+  },
+
+  getReferences: function() {
+    return this._successors;
+  },
+
+  removeReference: function(node) {
+    var self = this;
+
+    if (_.isNull(node)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this._successors = _.reject(this._successors, function(s) {
+      return s.equals(node);
+    });
+
+    var referencesOfFingerTable = this._references.getFirstFingerTableEntries(this._capacity);
+    referencesOfFingerTable = _.reject(referencesOfFingerTable, function(r) {
+      return r.equals(node);
+    });
+    _.each(referencesOfFingerTable, function(reference) {
+      self.addSuccessor(reference);
+    });
+  },
+
+  getSize: function() {
+    return _.size(this._successors);
+  },
+
+  getCapacity: function() {
+    return this._capacity;
+  },
+
+  containsReference: function(node) {
+    if (_.isNull(node)) {
+      throw new Error("Invalid argument.");
+    }
+
+    return !_.isUndefined(_.find(this._successors, function(n) {
+      return n.equals(node);
+    }));
+  },
+
+  getStatus: function() {
+    return _.invoke(this._successors, 'toNodeInfo');
+  },
+
+  toString: function() {
+    return "[Successors]\n" + _.map(this._successors, function(node, index) {
+      return "[" + index + "] " + node.toString();
+    }).join("\n") + "\n";
+  }
+};
+
+module.exports = SuccessorList;
+
+},{"./Utils":63,"underscore":43}],63:[function(require,module,exports){
+var _ = require('underscore');
+
+var Utils = {
+  isNonemptyString: function(value) {
+    return _.isString(value) && !_.isEmpty(value);
+  },
+
+  isValidNumber: function(number) {
+    return !_.isNaN(number) && _.isNumber(number);
+  },
+
+  insert: function(list, index, item) {
+    list.splice(index, 0, item);
+  }
+};
+
+var Set = function(items, comparator) {
+  var self = this;
+
+  this._items = [];
+  this._comparator = comparator;
+
+  _.each(items, function(item) {
+    self.put(item);
+  });
+};
+
+Set.prototype = {
+  put: function(item) {
+    if (this.size() === 0 || !this.has(item)) {
+      this._items.push(item);
+    }
+  },
+
+  remove: function(item) {
+    var self = this;
+    this._items = _.reject(this._items, function(_item) {
+      return self._comparator(_item, item);
+    });
+  },
+
+  size: function() {
+    return _.size(this._items);
+  },
+
+  has: function(item) {
+    var self = this;
+    return _.some(this._items, function(_item) {
+      return self._comparator(_item, item);
+    });
+  },
+
+  items: function() {
+    return this._items;
+  }
+};
+
+Utils.Set = Set;
+
+var Queue = function() {
+  this._items = [];
+};
+
+Queue.prototype = {
+  enqueue: function(item) {
+    this._items.push(item);
+  },
+
+  dequeue: function() {
+    if (_.isEmpty(this._items)) {
+      return null;
+    }
+    return this._items.shift();
+  },
+
+  first: function() {
+    if (_.isEmpty(this._items)) {
+      return null;
+    }
+    return _.first(this._items);
+  },
+
+  last: function() {
+    if (_.isEmpty(this._items)) {
+      return null;
+    }
+    return _.last(this._items);
+  },
+
+  size: function() {
+    return _.size(this._items);
+  },
+};
+
+Utils.Queue = Queue;
+
+var Cache = function(capacity, cacheOutCallback) {
+  this._cache = {};
+  this._useHistory = [];
+  this._capacity = capacity;
+  this._cacheOutCallback = cacheOutCallback;
+};
+
+Cache.prototype = {
+  get: function(key) {
+    if (!_.has(this._cache, key)) {
+      return null;
+    }
+    this._updateUseHistory(key);
+    return this._cache[key];
+  },
+
+  set: function(key, item) {
+    var self = this;
+
+    this._cache[key] = item;
+    this._updateUseHistory(key);
+    if (_.size(this._cache) > this._capacity) {
+      var keysToRemove = _.rest(this._useHistory, this._capacity);
+      this._useHistory = _.first(this._useHistory, this._capacity);
+      _.each(keysToRemove, function(key) {
+        var item = self._cache[key];
+        delete self._cache[key];
+        self._cacheOutCallback(item);
+      });
+    }
+  },
+
+  remove: function(key) {
+    if (!this.has(key)) {
+      return;
+    }
+    this._useHistory = _.reject(this._useHistory, function(k) {
+      return k === key;
+    });
+    delete this._cache[key];
+  },
+
+  has: function(key) {
+    return _.has(this._cache, key);
+  },
+
+  keys: function() {
+    return _.keys(this._cache);
+  },
+
+  _updateUseHistory: function(key) {
+    this._useHistory = _.reject(this._useHistory, function(k) {
+      return k === key;
+    });
+    this._useHistory.unshift(key);
+  }
+};
+
+Utils.Cache = Cache;
+
+module.exports = Utils;
+
+},{"underscore":43}],64:[function(require,module,exports){
 (function (global){
 ;__browserify_shim_require__=require;(function browserifyShim(module, exports, require, define, browserify_shim__define__module__export__) {
 /*! peerjs.js build:0.3.8, development. Copyright(c) 2013 Michelle Bu <michelle@michellebu.com> */
@@ -21893,4229 +26217,4 @@ Socket.prototype.close = function() {
 }).call(global, undefined, undefined, undefined, undefined, function defineExport(ex) { module.exports = ex; });
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],43:[function(require,module,exports){
-//     Underscore.js 1.6.0
-//     http://underscorejs.org
-//     (c) 2009-2014 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
-//     Underscore may be freely distributed under the MIT license.
-
-(function() {
-
-  // Baseline setup
-  // --------------
-
-  // Establish the root object, `window` in the browser, or `exports` on the server.
-  var root = this;
-
-  // Save the previous value of the `_` variable.
-  var previousUnderscore = root._;
-
-  // Establish the object that gets returned to break out of a loop iteration.
-  var breaker = {};
-
-  // Save bytes in the minified (but not gzipped) version:
-  var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
-
-  // Create quick reference variables for speed access to core prototypes.
-  var
-    push             = ArrayProto.push,
-    slice            = ArrayProto.slice,
-    concat           = ArrayProto.concat,
-    toString         = ObjProto.toString,
-    hasOwnProperty   = ObjProto.hasOwnProperty;
-
-  // All **ECMAScript 5** native function implementations that we hope to use
-  // are declared here.
-  var
-    nativeForEach      = ArrayProto.forEach,
-    nativeMap          = ArrayProto.map,
-    nativeReduce       = ArrayProto.reduce,
-    nativeReduceRight  = ArrayProto.reduceRight,
-    nativeFilter       = ArrayProto.filter,
-    nativeEvery        = ArrayProto.every,
-    nativeSome         = ArrayProto.some,
-    nativeIndexOf      = ArrayProto.indexOf,
-    nativeLastIndexOf  = ArrayProto.lastIndexOf,
-    nativeIsArray      = Array.isArray,
-    nativeKeys         = Object.keys,
-    nativeBind         = FuncProto.bind;
-
-  // Create a safe reference to the Underscore object for use below.
-  var _ = function(obj) {
-    if (obj instanceof _) return obj;
-    if (!(this instanceof _)) return new _(obj);
-    this._wrapped = obj;
-  };
-
-  // Export the Underscore object for **Node.js**, with
-  // backwards-compatibility for the old `require()` API. If we're in
-  // the browser, add `_` as a global object via a string identifier,
-  // for Closure Compiler "advanced" mode.
-  if (typeof exports !== 'undefined') {
-    if (typeof module !== 'undefined' && module.exports) {
-      exports = module.exports = _;
-    }
-    exports._ = _;
-  } else {
-    root._ = _;
-  }
-
-  // Current version.
-  _.VERSION = '1.6.0';
-
-  // Collection Functions
-  // --------------------
-
-  // The cornerstone, an `each` implementation, aka `forEach`.
-  // Handles objects with the built-in `forEach`, arrays, and raw objects.
-  // Delegates to **ECMAScript 5**'s native `forEach` if available.
-  var each = _.each = _.forEach = function(obj, iterator, context) {
-    if (obj == null) return obj;
-    if (nativeForEach && obj.forEach === nativeForEach) {
-      obj.forEach(iterator, context);
-    } else if (obj.length === +obj.length) {
-      for (var i = 0, length = obj.length; i < length; i++) {
-        if (iterator.call(context, obj[i], i, obj) === breaker) return;
-      }
-    } else {
-      var keys = _.keys(obj);
-      for (var i = 0, length = keys.length; i < length; i++) {
-        if (iterator.call(context, obj[keys[i]], keys[i], obj) === breaker) return;
-      }
-    }
-    return obj;
-  };
-
-  // Return the results of applying the iterator to each element.
-  // Delegates to **ECMAScript 5**'s native `map` if available.
-  _.map = _.collect = function(obj, iterator, context) {
-    var results = [];
-    if (obj == null) return results;
-    if (nativeMap && obj.map === nativeMap) return obj.map(iterator, context);
-    each(obj, function(value, index, list) {
-      results.push(iterator.call(context, value, index, list));
-    });
-    return results;
-  };
-
-  var reduceError = 'Reduce of empty array with no initial value';
-
-  // **Reduce** builds up a single result from a list of values, aka `inject`,
-  // or `foldl`. Delegates to **ECMAScript 5**'s native `reduce` if available.
-  _.reduce = _.foldl = _.inject = function(obj, iterator, memo, context) {
-    var initial = arguments.length > 2;
-    if (obj == null) obj = [];
-    if (nativeReduce && obj.reduce === nativeReduce) {
-      if (context) iterator = _.bind(iterator, context);
-      return initial ? obj.reduce(iterator, memo) : obj.reduce(iterator);
-    }
-    each(obj, function(value, index, list) {
-      if (!initial) {
-        memo = value;
-        initial = true;
-      } else {
-        memo = iterator.call(context, memo, value, index, list);
-      }
-    });
-    if (!initial) throw new TypeError(reduceError);
-    return memo;
-  };
-
-  // The right-associative version of reduce, also known as `foldr`.
-  // Delegates to **ECMAScript 5**'s native `reduceRight` if available.
-  _.reduceRight = _.foldr = function(obj, iterator, memo, context) {
-    var initial = arguments.length > 2;
-    if (obj == null) obj = [];
-    if (nativeReduceRight && obj.reduceRight === nativeReduceRight) {
-      if (context) iterator = _.bind(iterator, context);
-      return initial ? obj.reduceRight(iterator, memo) : obj.reduceRight(iterator);
-    }
-    var length = obj.length;
-    if (length !== +length) {
-      var keys = _.keys(obj);
-      length = keys.length;
-    }
-    each(obj, function(value, index, list) {
-      index = keys ? keys[--length] : --length;
-      if (!initial) {
-        memo = obj[index];
-        initial = true;
-      } else {
-        memo = iterator.call(context, memo, obj[index], index, list);
-      }
-    });
-    if (!initial) throw new TypeError(reduceError);
-    return memo;
-  };
-
-  // Return the first value which passes a truth test. Aliased as `detect`.
-  _.find = _.detect = function(obj, predicate, context) {
-    var result;
-    any(obj, function(value, index, list) {
-      if (predicate.call(context, value, index, list)) {
-        result = value;
-        return true;
-      }
-    });
-    return result;
-  };
-
-  // Return all the elements that pass a truth test.
-  // Delegates to **ECMAScript 5**'s native `filter` if available.
-  // Aliased as `select`.
-  _.filter = _.select = function(obj, predicate, context) {
-    var results = [];
-    if (obj == null) return results;
-    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(predicate, context);
-    each(obj, function(value, index, list) {
-      if (predicate.call(context, value, index, list)) results.push(value);
-    });
-    return results;
-  };
-
-  // Return all the elements for which a truth test fails.
-  _.reject = function(obj, predicate, context) {
-    return _.filter(obj, function(value, index, list) {
-      return !predicate.call(context, value, index, list);
-    }, context);
-  };
-
-  // Determine whether all of the elements match a truth test.
-  // Delegates to **ECMAScript 5**'s native `every` if available.
-  // Aliased as `all`.
-  _.every = _.all = function(obj, predicate, context) {
-    predicate || (predicate = _.identity);
-    var result = true;
-    if (obj == null) return result;
-    if (nativeEvery && obj.every === nativeEvery) return obj.every(predicate, context);
-    each(obj, function(value, index, list) {
-      if (!(result = result && predicate.call(context, value, index, list))) return breaker;
-    });
-    return !!result;
-  };
-
-  // Determine if at least one element in the object matches a truth test.
-  // Delegates to **ECMAScript 5**'s native `some` if available.
-  // Aliased as `any`.
-  var any = _.some = _.any = function(obj, predicate, context) {
-    predicate || (predicate = _.identity);
-    var result = false;
-    if (obj == null) return result;
-    if (nativeSome && obj.some === nativeSome) return obj.some(predicate, context);
-    each(obj, function(value, index, list) {
-      if (result || (result = predicate.call(context, value, index, list))) return breaker;
-    });
-    return !!result;
-  };
-
-  // Determine if the array or object contains a given value (using `===`).
-  // Aliased as `include`.
-  _.contains = _.include = function(obj, target) {
-    if (obj == null) return false;
-    if (nativeIndexOf && obj.indexOf === nativeIndexOf) return obj.indexOf(target) != -1;
-    return any(obj, function(value) {
-      return value === target;
-    });
-  };
-
-  // Invoke a method (with arguments) on every item in a collection.
-  _.invoke = function(obj, method) {
-    var args = slice.call(arguments, 2);
-    var isFunc = _.isFunction(method);
-    return _.map(obj, function(value) {
-      return (isFunc ? method : value[method]).apply(value, args);
-    });
-  };
-
-  // Convenience version of a common use case of `map`: fetching a property.
-  _.pluck = function(obj, key) {
-    return _.map(obj, _.property(key));
-  };
-
-  // Convenience version of a common use case of `filter`: selecting only objects
-  // containing specific `key:value` pairs.
-  _.where = function(obj, attrs) {
-    return _.filter(obj, _.matches(attrs));
-  };
-
-  // Convenience version of a common use case of `find`: getting the first object
-  // containing specific `key:value` pairs.
-  _.findWhere = function(obj, attrs) {
-    return _.find(obj, _.matches(attrs));
-  };
-
-  // Return the maximum element or (element-based computation).
-  // Can't optimize arrays of integers longer than 65,535 elements.
-  // See [WebKit Bug 80797](https://bugs.webkit.org/show_bug.cgi?id=80797)
-  _.max = function(obj, iterator, context) {
-    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
-      return Math.max.apply(Math, obj);
-    }
-    var result = -Infinity, lastComputed = -Infinity;
-    each(obj, function(value, index, list) {
-      var computed = iterator ? iterator.call(context, value, index, list) : value;
-      if (computed > lastComputed) {
-        result = value;
-        lastComputed = computed;
-      }
-    });
-    return result;
-  };
-
-  // Return the minimum element (or element-based computation).
-  _.min = function(obj, iterator, context) {
-    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
-      return Math.min.apply(Math, obj);
-    }
-    var result = Infinity, lastComputed = Infinity;
-    each(obj, function(value, index, list) {
-      var computed = iterator ? iterator.call(context, value, index, list) : value;
-      if (computed < lastComputed) {
-        result = value;
-        lastComputed = computed;
-      }
-    });
-    return result;
-  };
-
-  // Shuffle an array, using the modern version of the
-  // [Fisher-Yates shuffle](http://en.wikipedia.org/wiki/Fisher–Yates_shuffle).
-  _.shuffle = function(obj) {
-    var rand;
-    var index = 0;
-    var shuffled = [];
-    each(obj, function(value) {
-      rand = _.random(index++);
-      shuffled[index - 1] = shuffled[rand];
-      shuffled[rand] = value;
-    });
-    return shuffled;
-  };
-
-  // Sample **n** random values from a collection.
-  // If **n** is not specified, returns a single random element.
-  // The internal `guard` argument allows it to work with `map`.
-  _.sample = function(obj, n, guard) {
-    if (n == null || guard) {
-      if (obj.length !== +obj.length) obj = _.values(obj);
-      return obj[_.random(obj.length - 1)];
-    }
-    return _.shuffle(obj).slice(0, Math.max(0, n));
-  };
-
-  // An internal function to generate lookup iterators.
-  var lookupIterator = function(value) {
-    if (value == null) return _.identity;
-    if (_.isFunction(value)) return value;
-    return _.property(value);
-  };
-
-  // Sort the object's values by a criterion produced by an iterator.
-  _.sortBy = function(obj, iterator, context) {
-    iterator = lookupIterator(iterator);
-    return _.pluck(_.map(obj, function(value, index, list) {
-      return {
-        value: value,
-        index: index,
-        criteria: iterator.call(context, value, index, list)
-      };
-    }).sort(function(left, right) {
-      var a = left.criteria;
-      var b = right.criteria;
-      if (a !== b) {
-        if (a > b || a === void 0) return 1;
-        if (a < b || b === void 0) return -1;
-      }
-      return left.index - right.index;
-    }), 'value');
-  };
-
-  // An internal function used for aggregate "group by" operations.
-  var group = function(behavior) {
-    return function(obj, iterator, context) {
-      var result = {};
-      iterator = lookupIterator(iterator);
-      each(obj, function(value, index) {
-        var key = iterator.call(context, value, index, obj);
-        behavior(result, key, value);
-      });
-      return result;
-    };
-  };
-
-  // Groups the object's values by a criterion. Pass either a string attribute
-  // to group by, or a function that returns the criterion.
-  _.groupBy = group(function(result, key, value) {
-    _.has(result, key) ? result[key].push(value) : result[key] = [value];
-  });
-
-  // Indexes the object's values by a criterion, similar to `groupBy`, but for
-  // when you know that your index values will be unique.
-  _.indexBy = group(function(result, key, value) {
-    result[key] = value;
-  });
-
-  // Counts instances of an object that group by a certain criterion. Pass
-  // either a string attribute to count by, or a function that returns the
-  // criterion.
-  _.countBy = group(function(result, key) {
-    _.has(result, key) ? result[key]++ : result[key] = 1;
-  });
-
-  // Use a comparator function to figure out the smallest index at which
-  // an object should be inserted so as to maintain order. Uses binary search.
-  _.sortedIndex = function(array, obj, iterator, context) {
-    iterator = lookupIterator(iterator);
-    var value = iterator.call(context, obj);
-    var low = 0, high = array.length;
-    while (low < high) {
-      var mid = (low + high) >>> 1;
-      iterator.call(context, array[mid]) < value ? low = mid + 1 : high = mid;
-    }
-    return low;
-  };
-
-  // Safely create a real, live array from anything iterable.
-  _.toArray = function(obj) {
-    if (!obj) return [];
-    if (_.isArray(obj)) return slice.call(obj);
-    if (obj.length === +obj.length) return _.map(obj, _.identity);
-    return _.values(obj);
-  };
-
-  // Return the number of elements in an object.
-  _.size = function(obj) {
-    if (obj == null) return 0;
-    return (obj.length === +obj.length) ? obj.length : _.keys(obj).length;
-  };
-
-  // Array Functions
-  // ---------------
-
-  // Get the first element of an array. Passing **n** will return the first N
-  // values in the array. Aliased as `head` and `take`. The **guard** check
-  // allows it to work with `_.map`.
-  _.first = _.head = _.take = function(array, n, guard) {
-    if (array == null) return void 0;
-    if ((n == null) || guard) return array[0];
-    if (n < 0) return [];
-    return slice.call(array, 0, n);
-  };
-
-  // Returns everything but the last entry of the array. Especially useful on
-  // the arguments object. Passing **n** will return all the values in
-  // the array, excluding the last N. The **guard** check allows it to work with
-  // `_.map`.
-  _.initial = function(array, n, guard) {
-    return slice.call(array, 0, array.length - ((n == null) || guard ? 1 : n));
-  };
-
-  // Get the last element of an array. Passing **n** will return the last N
-  // values in the array. The **guard** check allows it to work with `_.map`.
-  _.last = function(array, n, guard) {
-    if (array == null) return void 0;
-    if ((n == null) || guard) return array[array.length - 1];
-    return slice.call(array, Math.max(array.length - n, 0));
-  };
-
-  // Returns everything but the first entry of the array. Aliased as `tail` and `drop`.
-  // Especially useful on the arguments object. Passing an **n** will return
-  // the rest N values in the array. The **guard**
-  // check allows it to work with `_.map`.
-  _.rest = _.tail = _.drop = function(array, n, guard) {
-    return slice.call(array, (n == null) || guard ? 1 : n);
-  };
-
-  // Trim out all falsy values from an array.
-  _.compact = function(array) {
-    return _.filter(array, _.identity);
-  };
-
-  // Internal implementation of a recursive `flatten` function.
-  var flatten = function(input, shallow, output) {
-    if (shallow && _.every(input, _.isArray)) {
-      return concat.apply(output, input);
-    }
-    each(input, function(value) {
-      if (_.isArray(value) || _.isArguments(value)) {
-        shallow ? push.apply(output, value) : flatten(value, shallow, output);
-      } else {
-        output.push(value);
-      }
-    });
-    return output;
-  };
-
-  // Flatten out an array, either recursively (by default), or just one level.
-  _.flatten = function(array, shallow) {
-    return flatten(array, shallow, []);
-  };
-
-  // Return a version of the array that does not contain the specified value(s).
-  _.without = function(array) {
-    return _.difference(array, slice.call(arguments, 1));
-  };
-
-  // Split an array into two arrays: one whose elements all satisfy the given
-  // predicate, and one whose elements all do not satisfy the predicate.
-  _.partition = function(array, predicate) {
-    var pass = [], fail = [];
-    each(array, function(elem) {
-      (predicate(elem) ? pass : fail).push(elem);
-    });
-    return [pass, fail];
-  };
-
-  // Produce a duplicate-free version of the array. If the array has already
-  // been sorted, you have the option of using a faster algorithm.
-  // Aliased as `unique`.
-  _.uniq = _.unique = function(array, isSorted, iterator, context) {
-    if (_.isFunction(isSorted)) {
-      context = iterator;
-      iterator = isSorted;
-      isSorted = false;
-    }
-    var initial = iterator ? _.map(array, iterator, context) : array;
-    var results = [];
-    var seen = [];
-    each(initial, function(value, index) {
-      if (isSorted ? (!index || seen[seen.length - 1] !== value) : !_.contains(seen, value)) {
-        seen.push(value);
-        results.push(array[index]);
-      }
-    });
-    return results;
-  };
-
-  // Produce an array that contains the union: each distinct element from all of
-  // the passed-in arrays.
-  _.union = function() {
-    return _.uniq(_.flatten(arguments, true));
-  };
-
-  // Produce an array that contains every item shared between all the
-  // passed-in arrays.
-  _.intersection = function(array) {
-    var rest = slice.call(arguments, 1);
-    return _.filter(_.uniq(array), function(item) {
-      return _.every(rest, function(other) {
-        return _.contains(other, item);
-      });
-    });
-  };
-
-  // Take the difference between one array and a number of other arrays.
-  // Only the elements present in just the first array will remain.
-  _.difference = function(array) {
-    var rest = concat.apply(ArrayProto, slice.call(arguments, 1));
-    return _.filter(array, function(value){ return !_.contains(rest, value); });
-  };
-
-  // Zip together multiple lists into a single array -- elements that share
-  // an index go together.
-  _.zip = function() {
-    var length = _.max(_.pluck(arguments, 'length').concat(0));
-    var results = new Array(length);
-    for (var i = 0; i < length; i++) {
-      results[i] = _.pluck(arguments, '' + i);
-    }
-    return results;
-  };
-
-  // Converts lists into objects. Pass either a single array of `[key, value]`
-  // pairs, or two parallel arrays of the same length -- one of keys, and one of
-  // the corresponding values.
-  _.object = function(list, values) {
-    if (list == null) return {};
-    var result = {};
-    for (var i = 0, length = list.length; i < length; i++) {
-      if (values) {
-        result[list[i]] = values[i];
-      } else {
-        result[list[i][0]] = list[i][1];
-      }
-    }
-    return result;
-  };
-
-  // If the browser doesn't supply us with indexOf (I'm looking at you, **MSIE**),
-  // we need this function. Return the position of the first occurrence of an
-  // item in an array, or -1 if the item is not included in the array.
-  // Delegates to **ECMAScript 5**'s native `indexOf` if available.
-  // If the array is large and already in sort order, pass `true`
-  // for **isSorted** to use binary search.
-  _.indexOf = function(array, item, isSorted) {
-    if (array == null) return -1;
-    var i = 0, length = array.length;
-    if (isSorted) {
-      if (typeof isSorted == 'number') {
-        i = (isSorted < 0 ? Math.max(0, length + isSorted) : isSorted);
-      } else {
-        i = _.sortedIndex(array, item);
-        return array[i] === item ? i : -1;
-      }
-    }
-    if (nativeIndexOf && array.indexOf === nativeIndexOf) return array.indexOf(item, isSorted);
-    for (; i < length; i++) if (array[i] === item) return i;
-    return -1;
-  };
-
-  // Delegates to **ECMAScript 5**'s native `lastIndexOf` if available.
-  _.lastIndexOf = function(array, item, from) {
-    if (array == null) return -1;
-    var hasIndex = from != null;
-    if (nativeLastIndexOf && array.lastIndexOf === nativeLastIndexOf) {
-      return hasIndex ? array.lastIndexOf(item, from) : array.lastIndexOf(item);
-    }
-    var i = (hasIndex ? from : array.length);
-    while (i--) if (array[i] === item) return i;
-    return -1;
-  };
-
-  // Generate an integer Array containing an arithmetic progression. A port of
-  // the native Python `range()` function. See
-  // [the Python documentation](http://docs.python.org/library/functions.html#range).
-  _.range = function(start, stop, step) {
-    if (arguments.length <= 1) {
-      stop = start || 0;
-      start = 0;
-    }
-    step = arguments[2] || 1;
-
-    var length = Math.max(Math.ceil((stop - start) / step), 0);
-    var idx = 0;
-    var range = new Array(length);
-
-    while(idx < length) {
-      range[idx++] = start;
-      start += step;
-    }
-
-    return range;
-  };
-
-  // Function (ahem) Functions
-  // ------------------
-
-  // Reusable constructor function for prototype setting.
-  var ctor = function(){};
-
-  // Create a function bound to a given object (assigning `this`, and arguments,
-  // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
-  // available.
-  _.bind = function(func, context) {
-    var args, bound;
-    if (nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
-    if (!_.isFunction(func)) throw new TypeError;
-    args = slice.call(arguments, 2);
-    return bound = function() {
-      if (!(this instanceof bound)) return func.apply(context, args.concat(slice.call(arguments)));
-      ctor.prototype = func.prototype;
-      var self = new ctor;
-      ctor.prototype = null;
-      var result = func.apply(self, args.concat(slice.call(arguments)));
-      if (Object(result) === result) return result;
-      return self;
-    };
-  };
-
-  // Partially apply a function by creating a version that has had some of its
-  // arguments pre-filled, without changing its dynamic `this` context. _ acts
-  // as a placeholder, allowing any combination of arguments to be pre-filled.
-  _.partial = function(func) {
-    var boundArgs = slice.call(arguments, 1);
-    return function() {
-      var position = 0;
-      var args = boundArgs.slice();
-      for (var i = 0, length = args.length; i < length; i++) {
-        if (args[i] === _) args[i] = arguments[position++];
-      }
-      while (position < arguments.length) args.push(arguments[position++]);
-      return func.apply(this, args);
-    };
-  };
-
-  // Bind a number of an object's methods to that object. Remaining arguments
-  // are the method names to be bound. Useful for ensuring that all callbacks
-  // defined on an object belong to it.
-  _.bindAll = function(obj) {
-    var funcs = slice.call(arguments, 1);
-    if (funcs.length === 0) throw new Error('bindAll must be passed function names');
-    each(funcs, function(f) { obj[f] = _.bind(obj[f], obj); });
-    return obj;
-  };
-
-  // Memoize an expensive function by storing its results.
-  _.memoize = function(func, hasher) {
-    var memo = {};
-    hasher || (hasher = _.identity);
-    return function() {
-      var key = hasher.apply(this, arguments);
-      return _.has(memo, key) ? memo[key] : (memo[key] = func.apply(this, arguments));
-    };
-  };
-
-  // Delays a function for the given number of milliseconds, and then calls
-  // it with the arguments supplied.
-  _.delay = function(func, wait) {
-    var args = slice.call(arguments, 2);
-    return setTimeout(function(){ return func.apply(null, args); }, wait);
-  };
-
-  // Defers a function, scheduling it to run after the current call stack has
-  // cleared.
-  _.defer = function(func) {
-    return _.delay.apply(_, [func, 1].concat(slice.call(arguments, 1)));
-  };
-
-  // Returns a function, that, when invoked, will only be triggered at most once
-  // during a given window of time. Normally, the throttled function will run
-  // as much as it can, without ever going more than once per `wait` duration;
-  // but if you'd like to disable the execution on the leading edge, pass
-  // `{leading: false}`. To disable execution on the trailing edge, ditto.
-  _.throttle = function(func, wait, options) {
-    var context, args, result;
-    var timeout = null;
-    var previous = 0;
-    options || (options = {});
-    var later = function() {
-      previous = options.leading === false ? 0 : _.now();
-      timeout = null;
-      result = func.apply(context, args);
-      context = args = null;
-    };
-    return function() {
-      var now = _.now();
-      if (!previous && options.leading === false) previous = now;
-      var remaining = wait - (now - previous);
-      context = this;
-      args = arguments;
-      if (remaining <= 0) {
-        clearTimeout(timeout);
-        timeout = null;
-        previous = now;
-        result = func.apply(context, args);
-        context = args = null;
-      } else if (!timeout && options.trailing !== false) {
-        timeout = setTimeout(later, remaining);
-      }
-      return result;
-    };
-  };
-
-  // Returns a function, that, as long as it continues to be invoked, will not
-  // be triggered. The function will be called after it stops being called for
-  // N milliseconds. If `immediate` is passed, trigger the function on the
-  // leading edge, instead of the trailing.
-  _.debounce = function(func, wait, immediate) {
-    var timeout, args, context, timestamp, result;
-
-    var later = function() {
-      var last = _.now() - timestamp;
-      if (last < wait) {
-        timeout = setTimeout(later, wait - last);
-      } else {
-        timeout = null;
-        if (!immediate) {
-          result = func.apply(context, args);
-          context = args = null;
-        }
-      }
-    };
-
-    return function() {
-      context = this;
-      args = arguments;
-      timestamp = _.now();
-      var callNow = immediate && !timeout;
-      if (!timeout) {
-        timeout = setTimeout(later, wait);
-      }
-      if (callNow) {
-        result = func.apply(context, args);
-        context = args = null;
-      }
-
-      return result;
-    };
-  };
-
-  // Returns a function that will be executed at most one time, no matter how
-  // often you call it. Useful for lazy initialization.
-  _.once = function(func) {
-    var ran = false, memo;
-    return function() {
-      if (ran) return memo;
-      ran = true;
-      memo = func.apply(this, arguments);
-      func = null;
-      return memo;
-    };
-  };
-
-  // Returns the first function passed as an argument to the second,
-  // allowing you to adjust arguments, run code before and after, and
-  // conditionally execute the original function.
-  _.wrap = function(func, wrapper) {
-    return _.partial(wrapper, func);
-  };
-
-  // Returns a function that is the composition of a list of functions, each
-  // consuming the return value of the function that follows.
-  _.compose = function() {
-    var funcs = arguments;
-    return function() {
-      var args = arguments;
-      for (var i = funcs.length - 1; i >= 0; i--) {
-        args = [funcs[i].apply(this, args)];
-      }
-      return args[0];
-    };
-  };
-
-  // Returns a function that will only be executed after being called N times.
-  _.after = function(times, func) {
-    return function() {
-      if (--times < 1) {
-        return func.apply(this, arguments);
-      }
-    };
-  };
-
-  // Object Functions
-  // ----------------
-
-  // Retrieve the names of an object's properties.
-  // Delegates to **ECMAScript 5**'s native `Object.keys`
-  _.keys = function(obj) {
-    if (!_.isObject(obj)) return [];
-    if (nativeKeys) return nativeKeys(obj);
-    var keys = [];
-    for (var key in obj) if (_.has(obj, key)) keys.push(key);
-    return keys;
-  };
-
-  // Retrieve the values of an object's properties.
-  _.values = function(obj) {
-    var keys = _.keys(obj);
-    var length = keys.length;
-    var values = new Array(length);
-    for (var i = 0; i < length; i++) {
-      values[i] = obj[keys[i]];
-    }
-    return values;
-  };
-
-  // Convert an object into a list of `[key, value]` pairs.
-  _.pairs = function(obj) {
-    var keys = _.keys(obj);
-    var length = keys.length;
-    var pairs = new Array(length);
-    for (var i = 0; i < length; i++) {
-      pairs[i] = [keys[i], obj[keys[i]]];
-    }
-    return pairs;
-  };
-
-  // Invert the keys and values of an object. The values must be serializable.
-  _.invert = function(obj) {
-    var result = {};
-    var keys = _.keys(obj);
-    for (var i = 0, length = keys.length; i < length; i++) {
-      result[obj[keys[i]]] = keys[i];
-    }
-    return result;
-  };
-
-  // Return a sorted list of the function names available on the object.
-  // Aliased as `methods`
-  _.functions = _.methods = function(obj) {
-    var names = [];
-    for (var key in obj) {
-      if (_.isFunction(obj[key])) names.push(key);
-    }
-    return names.sort();
-  };
-
-  // Extend a given object with all the properties in passed-in object(s).
-  _.extend = function(obj) {
-    each(slice.call(arguments, 1), function(source) {
-      if (source) {
-        for (var prop in source) {
-          obj[prop] = source[prop];
-        }
-      }
-    });
-    return obj;
-  };
-
-  // Return a copy of the object only containing the whitelisted properties.
-  _.pick = function(obj) {
-    var copy = {};
-    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
-    each(keys, function(key) {
-      if (key in obj) copy[key] = obj[key];
-    });
-    return copy;
-  };
-
-   // Return a copy of the object without the blacklisted properties.
-  _.omit = function(obj) {
-    var copy = {};
-    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
-    for (var key in obj) {
-      if (!_.contains(keys, key)) copy[key] = obj[key];
-    }
-    return copy;
-  };
-
-  // Fill in a given object with default properties.
-  _.defaults = function(obj) {
-    each(slice.call(arguments, 1), function(source) {
-      if (source) {
-        for (var prop in source) {
-          if (obj[prop] === void 0) obj[prop] = source[prop];
-        }
-      }
-    });
-    return obj;
-  };
-
-  // Create a (shallow-cloned) duplicate of an object.
-  _.clone = function(obj) {
-    if (!_.isObject(obj)) return obj;
-    return _.isArray(obj) ? obj.slice() : _.extend({}, obj);
-  };
-
-  // Invokes interceptor with the obj, and then returns obj.
-  // The primary purpose of this method is to "tap into" a method chain, in
-  // order to perform operations on intermediate results within the chain.
-  _.tap = function(obj, interceptor) {
-    interceptor(obj);
-    return obj;
-  };
-
-  // Internal recursive comparison function for `isEqual`.
-  var eq = function(a, b, aStack, bStack) {
-    // Identical objects are equal. `0 === -0`, but they aren't identical.
-    // See the [Harmony `egal` proposal](http://wiki.ecmascript.org/doku.php?id=harmony:egal).
-    if (a === b) return a !== 0 || 1 / a == 1 / b;
-    // A strict comparison is necessary because `null == undefined`.
-    if (a == null || b == null) return a === b;
-    // Unwrap any wrapped objects.
-    if (a instanceof _) a = a._wrapped;
-    if (b instanceof _) b = b._wrapped;
-    // Compare `[[Class]]` names.
-    var className = toString.call(a);
-    if (className != toString.call(b)) return false;
-    switch (className) {
-      // Strings, numbers, dates, and booleans are compared by value.
-      case '[object String]':
-        // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
-        // equivalent to `new String("5")`.
-        return a == String(b);
-      case '[object Number]':
-        // `NaN`s are equivalent, but non-reflexive. An `egal` comparison is performed for
-        // other numeric values.
-        return a != +a ? b != +b : (a == 0 ? 1 / a == 1 / b : a == +b);
-      case '[object Date]':
-      case '[object Boolean]':
-        // Coerce dates and booleans to numeric primitive values. Dates are compared by their
-        // millisecond representations. Note that invalid dates with millisecond representations
-        // of `NaN` are not equivalent.
-        return +a == +b;
-      // RegExps are compared by their source patterns and flags.
-      case '[object RegExp]':
-        return a.source == b.source &&
-               a.global == b.global &&
-               a.multiline == b.multiline &&
-               a.ignoreCase == b.ignoreCase;
-    }
-    if (typeof a != 'object' || typeof b != 'object') return false;
-    // Assume equality for cyclic structures. The algorithm for detecting cyclic
-    // structures is adapted from ES 5.1 section 15.12.3, abstract operation `JO`.
-    var length = aStack.length;
-    while (length--) {
-      // Linear search. Performance is inversely proportional to the number of
-      // unique nested structures.
-      if (aStack[length] == a) return bStack[length] == b;
-    }
-    // Objects with different constructors are not equivalent, but `Object`s
-    // from different frames are.
-    var aCtor = a.constructor, bCtor = b.constructor;
-    if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
-                             _.isFunction(bCtor) && (bCtor instanceof bCtor))
-                        && ('constructor' in a && 'constructor' in b)) {
-      return false;
-    }
-    // Add the first object to the stack of traversed objects.
-    aStack.push(a);
-    bStack.push(b);
-    var size = 0, result = true;
-    // Recursively compare objects and arrays.
-    if (className == '[object Array]') {
-      // Compare array lengths to determine if a deep comparison is necessary.
-      size = a.length;
-      result = size == b.length;
-      if (result) {
-        // Deep compare the contents, ignoring non-numeric properties.
-        while (size--) {
-          if (!(result = eq(a[size], b[size], aStack, bStack))) break;
-        }
-      }
-    } else {
-      // Deep compare objects.
-      for (var key in a) {
-        if (_.has(a, key)) {
-          // Count the expected number of properties.
-          size++;
-          // Deep compare each member.
-          if (!(result = _.has(b, key) && eq(a[key], b[key], aStack, bStack))) break;
-        }
-      }
-      // Ensure that both objects contain the same number of properties.
-      if (result) {
-        for (key in b) {
-          if (_.has(b, key) && !(size--)) break;
-        }
-        result = !size;
-      }
-    }
-    // Remove the first object from the stack of traversed objects.
-    aStack.pop();
-    bStack.pop();
-    return result;
-  };
-
-  // Perform a deep comparison to check if two objects are equal.
-  _.isEqual = function(a, b) {
-    return eq(a, b, [], []);
-  };
-
-  // Is a given array, string, or object empty?
-  // An "empty" object has no enumerable own-properties.
-  _.isEmpty = function(obj) {
-    if (obj == null) return true;
-    if (_.isArray(obj) || _.isString(obj)) return obj.length === 0;
-    for (var key in obj) if (_.has(obj, key)) return false;
-    return true;
-  };
-
-  // Is a given value a DOM element?
-  _.isElement = function(obj) {
-    return !!(obj && obj.nodeType === 1);
-  };
-
-  // Is a given value an array?
-  // Delegates to ECMA5's native Array.isArray
-  _.isArray = nativeIsArray || function(obj) {
-    return toString.call(obj) == '[object Array]';
-  };
-
-  // Is a given variable an object?
-  _.isObject = function(obj) {
-    return obj === Object(obj);
-  };
-
-  // Add some isType methods: isArguments, isFunction, isString, isNumber, isDate, isRegExp.
-  each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp'], function(name) {
-    _['is' + name] = function(obj) {
-      return toString.call(obj) == '[object ' + name + ']';
-    };
-  });
-
-  // Define a fallback version of the method in browsers (ahem, IE), where
-  // there isn't any inspectable "Arguments" type.
-  if (!_.isArguments(arguments)) {
-    _.isArguments = function(obj) {
-      return !!(obj && _.has(obj, 'callee'));
-    };
-  }
-
-  // Optimize `isFunction` if appropriate.
-  if (typeof (/./) !== 'function') {
-    _.isFunction = function(obj) {
-      return typeof obj === 'function';
-    };
-  }
-
-  // Is a given object a finite number?
-  _.isFinite = function(obj) {
-    return isFinite(obj) && !isNaN(parseFloat(obj));
-  };
-
-  // Is the given value `NaN`? (NaN is the only number which does not equal itself).
-  _.isNaN = function(obj) {
-    return _.isNumber(obj) && obj != +obj;
-  };
-
-  // Is a given value a boolean?
-  _.isBoolean = function(obj) {
-    return obj === true || obj === false || toString.call(obj) == '[object Boolean]';
-  };
-
-  // Is a given value equal to null?
-  _.isNull = function(obj) {
-    return obj === null;
-  };
-
-  // Is a given variable undefined?
-  _.isUndefined = function(obj) {
-    return obj === void 0;
-  };
-
-  // Shortcut function for checking if an object has a given property directly
-  // on itself (in other words, not on a prototype).
-  _.has = function(obj, key) {
-    return hasOwnProperty.call(obj, key);
-  };
-
-  // Utility Functions
-  // -----------------
-
-  // Run Underscore.js in *noConflict* mode, returning the `_` variable to its
-  // previous owner. Returns a reference to the Underscore object.
-  _.noConflict = function() {
-    root._ = previousUnderscore;
-    return this;
-  };
-
-  // Keep the identity function around for default iterators.
-  _.identity = function(value) {
-    return value;
-  };
-
-  _.constant = function(value) {
-    return function () {
-      return value;
-    };
-  };
-
-  _.property = function(key) {
-    return function(obj) {
-      return obj[key];
-    };
-  };
-
-  // Returns a predicate for checking whether an object has a given set of `key:value` pairs.
-  _.matches = function(attrs) {
-    return function(obj) {
-      if (obj === attrs) return true; //avoid comparing an object to itself.
-      for (var key in attrs) {
-        if (attrs[key] !== obj[key])
-          return false;
-      }
-      return true;
-    }
-  };
-
-  // Run a function **n** times.
-  _.times = function(n, iterator, context) {
-    var accum = Array(Math.max(0, n));
-    for (var i = 0; i < n; i++) accum[i] = iterator.call(context, i);
-    return accum;
-  };
-
-  // Return a random integer between min and max (inclusive).
-  _.random = function(min, max) {
-    if (max == null) {
-      max = min;
-      min = 0;
-    }
-    return min + Math.floor(Math.random() * (max - min + 1));
-  };
-
-  // A (possibly faster) way to get the current timestamp as an integer.
-  _.now = Date.now || function() { return new Date().getTime(); };
-
-  // List of HTML entities for escaping.
-  var entityMap = {
-    escape: {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#x27;'
-    }
-  };
-  entityMap.unescape = _.invert(entityMap.escape);
-
-  // Regexes containing the keys and values listed immediately above.
-  var entityRegexes = {
-    escape:   new RegExp('[' + _.keys(entityMap.escape).join('') + ']', 'g'),
-    unescape: new RegExp('(' + _.keys(entityMap.unescape).join('|') + ')', 'g')
-  };
-
-  // Functions for escaping and unescaping strings to/from HTML interpolation.
-  _.each(['escape', 'unescape'], function(method) {
-    _[method] = function(string) {
-      if (string == null) return '';
-      return ('' + string).replace(entityRegexes[method], function(match) {
-        return entityMap[method][match];
-      });
-    };
-  });
-
-  // If the value of the named `property` is a function then invoke it with the
-  // `object` as context; otherwise, return it.
-  _.result = function(object, property) {
-    if (object == null) return void 0;
-    var value = object[property];
-    return _.isFunction(value) ? value.call(object) : value;
-  };
-
-  // Add your own custom functions to the Underscore object.
-  _.mixin = function(obj) {
-    each(_.functions(obj), function(name) {
-      var func = _[name] = obj[name];
-      _.prototype[name] = function() {
-        var args = [this._wrapped];
-        push.apply(args, arguments);
-        return result.call(this, func.apply(_, args));
-      };
-    });
-  };
-
-  // Generate a unique integer id (unique within the entire client session).
-  // Useful for temporary DOM ids.
-  var idCounter = 0;
-  _.uniqueId = function(prefix) {
-    var id = ++idCounter + '';
-    return prefix ? prefix + id : id;
-  };
-
-  // By default, Underscore uses ERB-style template delimiters, change the
-  // following template settings to use alternative delimiters.
-  _.templateSettings = {
-    evaluate    : /<%([\s\S]+?)%>/g,
-    interpolate : /<%=([\s\S]+?)%>/g,
-    escape      : /<%-([\s\S]+?)%>/g
-  };
-
-  // When customizing `templateSettings`, if you don't want to define an
-  // interpolation, evaluation or escaping regex, we need one that is
-  // guaranteed not to match.
-  var noMatch = /(.)^/;
-
-  // Certain characters need to be escaped so that they can be put into a
-  // string literal.
-  var escapes = {
-    "'":      "'",
-    '\\':     '\\',
-    '\r':     'r',
-    '\n':     'n',
-    '\t':     't',
-    '\u2028': 'u2028',
-    '\u2029': 'u2029'
-  };
-
-  var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
-
-  // JavaScript micro-templating, similar to John Resig's implementation.
-  // Underscore templating handles arbitrary delimiters, preserves whitespace,
-  // and correctly escapes quotes within interpolated code.
-  _.template = function(text, data, settings) {
-    var render;
-    settings = _.defaults({}, settings, _.templateSettings);
-
-    // Combine delimiters into one regular expression via alternation.
-    var matcher = new RegExp([
-      (settings.escape || noMatch).source,
-      (settings.interpolate || noMatch).source,
-      (settings.evaluate || noMatch).source
-    ].join('|') + '|$', 'g');
-
-    // Compile the template source, escaping string literals appropriately.
-    var index = 0;
-    var source = "__p+='";
-    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
-      source += text.slice(index, offset)
-        .replace(escaper, function(match) { return '\\' + escapes[match]; });
-
-      if (escape) {
-        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
-      }
-      if (interpolate) {
-        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
-      }
-      if (evaluate) {
-        source += "';\n" + evaluate + "\n__p+='";
-      }
-      index = offset + match.length;
-      return match;
-    });
-    source += "';\n";
-
-    // If a variable is not specified, place data values in local scope.
-    if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
-
-    source = "var __t,__p='',__j=Array.prototype.join," +
-      "print=function(){__p+=__j.call(arguments,'');};\n" +
-      source + "return __p;\n";
-
-    try {
-      render = new Function(settings.variable || 'obj', '_', source);
-    } catch (e) {
-      e.source = source;
-      throw e;
-    }
-
-    if (data) return render(data, _);
-    var template = function(data) {
-      return render.call(this, data, _);
-    };
-
-    // Provide the compiled function source as a convenience for precompilation.
-    template.source = 'function(' + (settings.variable || 'obj') + '){\n' + source + '}';
-
-    return template;
-  };
-
-  // Add a "chain" function, which will delegate to the wrapper.
-  _.chain = function(obj) {
-    return _(obj).chain();
-  };
-
-  // OOP
-  // ---------------
-  // If Underscore is called as a function, it returns a wrapped object that
-  // can be used OO-style. This wrapper holds altered versions of all the
-  // underscore functions. Wrapped objects may be chained.
-
-  // Helper function to continue chaining intermediate results.
-  var result = function(obj) {
-    return this._chain ? _(obj).chain() : obj;
-  };
-
-  // Add all of the Underscore functions to the wrapper object.
-  _.mixin(_);
-
-  // Add all mutator Array functions to the wrapper.
-  each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
-    var method = ArrayProto[name];
-    _.prototype[name] = function() {
-      var obj = this._wrapped;
-      method.apply(obj, arguments);
-      if ((name == 'shift' || name == 'splice') && obj.length === 0) delete obj[0];
-      return result.call(this, obj);
-    };
-  });
-
-  // Add all accessor Array functions to the wrapper.
-  each(['concat', 'join', 'slice'], function(name) {
-    var method = ArrayProto[name];
-    _.prototype[name] = function() {
-      return result.call(this, method.apply(this._wrapped, arguments));
-    };
-  });
-
-  _.extend(_.prototype, {
-
-    // Start chaining a wrapped Underscore object.
-    chain: function() {
-      this._chain = true;
-      return this;
-    },
-
-    // Extracts the result from a wrapped and chained object.
-    value: function() {
-      return this._wrapped;
-    }
-
-  });
-
-  // AMD registration happens at the end for compatibility with AMD loaders
-  // that may not enforce next-turn semantics on modules. Even though general
-  // practice for AMD registration is to be anonymous, underscore registers
-  // as a named module because, like jQuery, it is a base library that is
-  // popular enough to be bundled in a third party lib, but not be part of
-  // an AMD load request. Those cases could generate an error when an
-  // anonymous define() is called outside of a loader request.
-  if (typeof define === 'function' && define.amd) {
-    define('underscore', [], function() {
-      return _;
-    });
-  }
-}).call(this);
-
-},{}],44:[function(require,module,exports){
-var _ = require('underscore');
-var Utils = require('./Utils');
-
-var CheckPredecessorTask = function(references) {
-  this._references = references;
-  this._timer = null;
-};
-
-CheckPredecessorTask.create = function(references, config) {
-  if (!Utils.isValidNumber(config.checkPredecessorTaskInterval) ||
-      config.checkPredecessorTaskInterval < 0) {
-    config.checkPredecessorTaskInterval = 30000;
-  }
-
-  var task = new CheckPredecessorTask(references);
-  var timer = setInterval(function() {
-    task.run();
-  }, config.checkPredecessorTaskInterval);
-  task._timer = timer;
-  return task;
-};
-
-CheckPredecessorTask.prototype = {
-  run: function() {
-    var self = this;
-
-    var predecessor = this._references.getPredecessor();
-    if (_.isNull(predecessor)) {
-      return;
-    }
-
-    predecessor.ping(function(isAlive, error) {
-      if (error) {
-        console.log(error);
-        self._references.removeReference(predecessor);
-      }
-    });
-  },
-
-  shutdown: function() {
-    if (!_.isNull(this._timer)) {
-      clearInterval(this._timer);
-    }
-  }
-};
-
-module.exports = CheckPredecessorTask;
-
-},{"./Utils":63,"underscore":43}],45:[function(require,module,exports){
-var _ = require('underscore');
-var LocalNode = require('./LocalNode');
-var Utils = require('./Utils');
-
-var Chord = function(config) {
-  if (!_.isObject(config)) {
-    throw new Error("Invalid argument.");
-  }
-
-  this._config = config;
-  this._localNode = null;
-  this.onentriesinserted = function(entries) { ; };
-  this.onentriesremoved = function(entries) { ; };
-};
-
-Chord.prototype = {
-  create: function(callback) {
-    var self = this;
-
-    if (!_.isNull(this._localNode)) {
-      throw new Error("Local node is already created.");
-    }
-    if (_.isUndefined(callback)) {
-      callback = function() { ; };
-    }
-
-    LocalNode.create(this, this._config, function(localNode, error) {
-      if (error) {
-        callback(null, error);
-        return;
-      }
-
-      self._localNode = localNode;
-      self._localNode.create(function(peerId, error) {
-        if (error) {
-          self.leave();
-          self._localNode = null;
-        }
-
-        callback(peerId, error);
-      });
-    });
-  },
-
-  join: function(bootstrapId, callback) {
-    var self = this;
-
-    if (!Utils.isNonemptyString(bootstrapId)) {
-      throw new Error("Invalid argument.");
-    }
-    if (!_.isNull(this._localNode)) {
-      throw new Error("Local node is already created.");
-    }
-    if (_.isUndefined(callback)) {
-      callback = function() { ; };
-    }
-
-    LocalNode.create(this, this._config, function(localNode, error) {
-      if (error) {
-        callback(null, error);
-        return;
-      }
-
-      self._localNode = localNode;
-      self._localNode.join(bootstrapId, function(peerId, error) {
-        if (error) {
-          self.leave();
-          self._localNode = null;
-        }
-
-        callback(peerId, error);
-      });
-    });
-  },
-
-  leave: function() {
-    var self = this;
-
-    if (_.isNull(this._localNode)) {
-      return;
-    }
-
-    this._localNode.leave(function() {
-      self._localNode = null;
-    });
-  },
-
-  insert: function(key, value, callback) {
-    if (_.isUndefined(callback)) {
-      callback = function() { ; };
-    }
-    if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
-      callback(new Error("Invalid arguments."));
-      return;
-    }
-
-    this._localNode.insert(key, value, callback);
-  },
-
-  retrieve: function(key, callback) {
-    if (_.isUndefined(callback)) {
-      callback = function() { ; };
-    }
-    if (!Utils.isNonemptyString(key)) {
-      callback(new Error("Invalid argument."));
-      return;
-    }
-
-    this._localNode.retrieve(key, callback);
-  },
-
-  remove: function(key, value, callback) {
-    if (_.isUndefined(callback)) {
-      callback = function() { ; };
-    }
-    if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
-      callback(new Error("Invalid arguments."));
-      return;
-    }
-
-    this._localNode.remove(key, value, callback);
-  },
-
-  getStatuses: function() {
-    return this._localNode.getStatuses();
-  },
-
-  getPeerId: function() {
-    if (_.isNull(this._localNode)) {
-      return null;
-    }
-
-    return this._localNode.getPeerId();
-  },
-
-  getNodeId: function() {
-    if (_.isNull(this._localNode)) {
-      return null;
-    }
-
-    return this._localNode.nodeId.toHexString();
-  },
-
-  toString: function() {
-    if (_.isNull(this._localNode)) {
-      return "";
-    }
-
-    return this._localNode.toDisplayString();
-  }
-};
-
-module.exports = Chord;
-
-},{"./LocalNode":53,"./Utils":63,"underscore":43}],46:[function(require,module,exports){
-var _ = require('underscore');
-var Request = require('./Request');
-var Response = require('./Response');
-
-var Connection = function(conn, callbacks) {
-  var self = this;
-
-  this._conn = conn;
-  this._callbacks = callbacks;
-
-  this._conn.on('data', function(data) {
-    self._onDataReceived(data);
-  });
-
-  this._conn.on('close', function() {
-    callbacks.closedByRemote(self);
-  });
-
-  this._conn.on('error', function(error) {
-    console.log(error);
-  });
-};
-
-Connection.prototype = {
-  send: function(requestOrResponse, callback) {
-    this._conn.send(requestOrResponse.toJson());
-  },
-
-  _onDataReceived: function(data) {
-    var self = this;
-
-    if (Response.isResponse(data)) {
-      var response;
-      try {
-        response = Response.fromJson(data);
-      } catch (e) {
-        return;
-      }
-      this._callbacks.responseReceived(this, response);
-    } else if (Request.isRequest(data)) {
-      var request;
-      try {
-        request = Request.fromJson(data);
-      } catch (e) {
-        return;
-      }
-      this._callbacks.requestReceived(this, request);
-    }
-  },
-
-  close: function() {
-    this._callbacks.closedByLocal(this);
-  },
-
-  destroy: function() {
-    this._conn.close();
-  },
-
-  getPeerId: function() {
-    return this._conn.peer;
-  },
-
-  isAvailable: function() {
-    return this._conn.open;
-  }
-};
-
-module.exports = Connection;
-
-},{"./Request":58,"./Response":60,"underscore":43}],47:[function(require,module,exports){
-var _ = require('underscore');
-var PeerAgent = require('./PeerAgent');
-var Connection = require('./Connection');
-var Utils = require('./Utils');
-
-var ConnectionFactory = function(config, nodeFactory, callback) {
-  var self = this;
-
-  var requestReceived = function(connection, request) {
-    connection.close();
-    nodeFactory.onRequestReceived(connection.getPeerId(), request);
-  };
-  var responseReceived = function(connection, response) {
-    connection.close();
-    nodeFactory.onResponseReceived(connection.getPeerId(), response);
-  };
-  var closedByRemote = function(connection) {
-    self.removeConnection(connection.getPeerId());
-  };
-  var closedByLocal = function(connection) {
-    self._connectionPool.set(connection.getPeerId(), connection);
-  };
-  this._peerAgent = new PeerAgent(config, {
-    onPeerSetup: function(peerId, error) {
-      if (error) {
-        callback(null, error);
-        return;
-      }
-      callback(self);
-    },
-
-    onConnectionOpened: function(peerId, conn, error) {
-      if (error) {
-        self._invokeNextCallback(peerId, null, error);
-        return;
-      }
-
-      var connection = new Connection(conn, {
-        requestReceived: requestReceived,
-        responseReceived: responseReceived,
-        closedByRemote: closedByRemote,
-        closedByLocal: closedByLocal
-      });
-
-      self._invokeNextCallback(peerId, connection);
-    },
-
-    onConnection: function(peerId, conn) {
-      if (self._connectionPool.has(peerId)) {
-        self.removeConnection(peerId);
-      }
-
-      var connection;
-      var timer = setTimeout(function() {
-        connection.close();
-      }, config.silentConnectionCloseTimeout);
-
-      var clearTimerOnce = _.once(function() { clearTimeout(timer); });
-
-      connection = new Connection(conn, {
-        requestReceived: function(connection, request) {
-          clearTimerOnce();
-          requestReceived(connection, request);
-        },
-        responseReceived: function(connection, response) {
-          clearTimerOnce();
-          responseReceived(connection, response);
-        },
-        closedByRemote: closedByRemote,
-        closedByLocal: closedByLocal
-      });
-    },
-
-    onPeerClosed: function() {
-      _.each(self._connectionPool.keys(), function(peerId) {
-        self.removeConnection(peerId);
-      });
-    }
-  });
-
-  if (!Utils.isValidNumber(config.connectionPoolSize) ||
-      config.connectionPoolSize < 0) {
-    config.connectionPoolSize = 10;
-  }
-  if (!Utils.isValidNumber(config.connectionCloseDelay) ||
-      config.connectionCloseDelay < 0) {
-    config.connectionCloseDelay = 5000;
-  }
-  if (!Utils.isValidNumber(config.silentConnectionCloseTimeout) ||
-      config.silentConnectionCloseTimeout < 0) {
-    config.silentConnectionCloseTimeout = 30000;
-  }
-  this._connectionPool = new Utils.Cache(config.connectionPoolSize, function(connection) {
-    _.delay(function() { connection.destroy(); }, config.connectionCloseDelay);
-  });
-  this._callbackQueue = new Utils.Queue();
-};
-
-ConnectionFactory.create = function(config, nodeFactory, callback) {
-  var factory = new ConnectionFactory(config, nodeFactory, callback);
-};
-
-ConnectionFactory.prototype = {
-  create: function(remotePeerId, callback) {
-    var self = this;
-
-    if (!Utils.isNonemptyString(remotePeerId)) {
-      callback(null);
-      return;
-    }
-
-    this._callbackQueue.enqueue({
-      peerId: remotePeerId,
-      callback: callback
-    });
-
-    this._createConnectionAndInvokeNextCallback();
-  },
-
-  _createConnectionAndInvokeNextCallback: function() {
-    var self = this;
-
-    var callbackInfo = this._callbackQueue.first();
-    if (_.isNull(callbackInfo)) {
-      return;
-    }
-
-    if (this._peerAgent.isWaitingOpeningConnection()) {
-      return;
-    }
-
-    if (this._connectionPool.has(callbackInfo.peerId)) {
-      var connection = this._connectionPool.get(callbackInfo.peerId);
-      if (connection.isAvailable()) {
-        this._invokeNextCallback(connection.getPeerId(), connection);
-        return;
-      }
-
-      this.removeConnection(connection.getPeerId());
-    }
-
-    this._peerAgent.connect(callbackInfo.peerId);
-  },
-
-  _invokeNextCallback: function(peerId, connection, error) {
-    var self = this;
-
-    _.defer(function() {
-      self._createConnectionAndInvokeNextCallback();
-    });
-
-    var callbackInfo = this._callbackQueue.dequeue();
-    if (_.isNull(callbackInfo)) {
-      console.log("Unknown situation.");
-      return;
-    }
-    if (callbackInfo.peerId !== peerId) {
-      callbackInfo.callback(null, new Error("Unknown situation."));
-      return;
-    }
-    callbackInfo.callback(connection, error);
-  },
-
-  removeConnection: function(remotePeerId) {
-    var connection = this._connectionPool.get(remotePeerId);
-    if (_.isNull(connection)) {
-      return;
-    }
-    connection.destroy();
-    this._connectionPool.remove(remotePeerId);
-  },
-
-  destroy: function() {
-    this._peerAgent.destroy();
-  },
-
-  getPeerId: function() {
-    return this._peerAgent.getPeerId();
-  }
-};
-
-module.exports = ConnectionFactory;
-
-},{"./Connection":46,"./PeerAgent":56,"./Utils":63,"underscore":43}],48:[function(require,module,exports){
-var _ = require('underscore');
-var ID = require('./ID');
-
-var Entry = function(id, value) {
-  if (_.isNull(id) || _.isUndefined(value)) {
-    throw new Error("Invalid argument.");
-  }
-
-  this.id = id;
-  this.value = value;
-};
-
-Entry.fromJson = function(json) {
-  if (!_.isObject(json)) {
-    throw new Error("invalid argument.");
-  }
-  return new Entry(ID.fromHexString(json.id), json.value);
-};
-
-Entry.prototype = {
-  equals: function(entry) {
-    if (!(entry instanceof Entry)) {
-      return false;
-    }
-
-    return this.id.equals(entry.id) && _.isEqual(this.value, entry.value);
-  },
-
-  toJson: function() {
-    return {
-      id: this.id.toHexString(),
-      value: this.value
-    };
-  }
-};
-
-module.exports = Entry;
-
-},{"./ID":52,"underscore":43}],49:[function(require,module,exports){
-var _ = require('underscore');
-var ID = require('./ID');
-var Utils = require('./Utils');
-
-var EntryList = function() {
-  this._entries = {};
-};
-
-EntryList.prototype = {
-  addAll: function(entries) {
-    var self = this;
-
-    if (_.isNull(entries)) {
-      throw new Error("Invalid argument.");
-    }
-
-    _.each(entries, function(entry) {
-      self.add(entry);
-    });
-  },
-
-  add: function(entry) {
-    if (_.isNull(entry)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (_.has(this._entries, entry.id.toHexString())) {
-      this._entries[entry.id.toHexString()].put(entry);
-    } else {
-      this._entries[entry.id.toHexString()] = new Utils.Set([entry], function(a, b) {
-        return a.equals(b);
-      });
-    }
-  },
-
-  remove: function(entry) {
-    if (_.isNull(entry)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (!_.has(this._entries, entry.id.toHexString())) {
-      return;
-    }
-
-    this._entries[entry.id.toHexString()].remove(entry);
-    if (this._entries[entry.id.toHexString()].size() === 0) {
-      delete this._entries[entry.id.toHexString()];
-    }
-  },
-
-  getEntries: function(id) {
-    if (_.isNull(id)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (_.isUndefined(id)) {
-      return this._entries;
-    }
-
-    if (_.has(this._entries, id.toHexString())) {
-      return this._entries[id.toHexString()].items();
-    } else {
-      return [];
-    }
-  },
-
-  getEntriesInInterval: function(fromId, toId) {
-    if (_.isNull(fromId) || _.isNull(toId)) {
-      throw new Error("Invalid argument.");
-    }
-
-    var result = [];
-    _.each(this._entries, function(entries, key) {
-      if (ID.fromHexString(key).isInInterval(fromId, toId)) {
-        result = result.concat(entries.items());
-      }
-    });
-
-    result = result.concat(this.getEntries(toId));
-
-    return result;
-  },
-
-  removeAll: function(entries) {
-    var self = this;
-
-    if (_.isNull(entries)) {
-      throw new Error("Invalid argument.");
-    }
-
-    _.each(entries, function(entry) {
-      self.remove(entry);
-    });
-  },
-
-  getNumberOfStoredEntries: function() {
-    return _.size(this._entries);
-  },
-
-  getStatus: function() {
-    return _.chain(this._entries)
-      .map(function(entries, key) {
-        return [
-          key,
-          _.map(entries, function(entry) {
-            return entry.value;
-          })
-        ];
-      })
-      .object()
-      .value();
-  },
-
-  toString: function() {
-    var self = this;
-
-    return "[Entries]\n" + _.chain(this._entries)
-      .keys()
-      .map(function(key) { return ID.fromHexString(key); })
-      .sort(function(a, b) { return a.compareTo(b); })
-      .map(function(id) {
-        return "[" + id.toHexString() + "]\n" +
-          _.map(self.getEntries(id), function(entry) {
-            return JSON.stringify(entry.value);
-          }).join("\n") + "\n";
-      })
-      .value()
-      .join("\n") + "\n";
-  }
-};
-
-module.exports = EntryList;
-
-},{"./ID":52,"./Utils":63,"underscore":43}],50:[function(require,module,exports){
-var _ = require('underscore');
-
-var FingerTable = function(localId, references) {
-  if (_.isNull(localId) || _.isNull(references)) {
-    throw new Error("Invalid arguments.");
-  }
-
-  this._localId = localId;
-  this._references = references;
-  this._remoteNodes = {};
-};
-
-FingerTable.prototype = {
-  _setEntry: function(index, node) {
-    if (!_.isNumber(index) || _.isNull(node)) {
-      throw new Error("Invalid arguments.");
-    }
-    if (index < 0 || index >= this._localId.getLength()) {
-      throw new Error("Invalid index.");
-    }
-
-    this._remoteNodes[index] = node;
-  },
-
-  _getEntry: function(index) {
-    if (!_.isNumber(index)) {
-      throw new Error("Invalid argument.");
-    }
-    if (index < 0 || index >= this._localId.getLength()) {
-      throw new Error("Invalid index.");
-    }
-
-    if (!_.has(this._remoteNodes, index)) {
-      return null;
-    }
-    return this._remoteNodes[index];
-  },
-
-  _unsetEntry: function(index) {
-    if (!_.isNumber(index)) {
-      throw new Error("Invalid argument.");
-    }
-    if (index < 0 || index >= this._localId.getLength()) {
-      throw new Error("Invalid index.");
-    }
-
-    var overwrittenNode = this._getEntry(index);
-
-    delete this._remoteNodes[index];
-
-    if (!_.isNull(overwrittenNode)) {
-      this._references.disconnectIfUnreferenced(overwrittenNode);
-    }
-  },
-
-  addReference: function(node) {
-    if (_.isNull(node)) {
-      throw new Error("Invalid argument.");
-    }
-
-    for (var i = 0; i < this._localId.getLength(); i++) {
-      var startOfInterval = this._localId.addPowerOfTwo(i);
-      if (!startOfInterval.isInInterval(this._localId, node.nodeId)) {
-        break;
-      }
-
-      if (_.isNull(this._getEntry(i))) {
-        this._setEntry(i, node);
-      } else if (node.nodeId.isInInterval(this._localId, this._getEntry(i).nodeId)) {
-        var oldEntry = this._getEntry(i);
-        this._setEntry(i, node);
-        this._references.disconnectIfUnreferenced(oldEntry);
-      }
-    }
-  },
-
-  getClosestPrecedingNode: function(key) {
-    if (_.isNull(key)) {
-      throw new Error("Invalid argument.");
-    }
-
-    var sortedKeys = _.chain(this._remoteNodes)
-      .keys()
-      .map(function(key) { return parseInt(key); })
-      .sortBy()
-      .value();
-    for (var i = _.size(sortedKeys) - 1; i >= 0; i--) {
-      var k = sortedKeys[i]
-      if (!_.isNull(this._getEntry(k)) &&
-          this._getEntry(k).nodeId.isInInterval(this._localId, key)) {
-        return this._getEntry(k);
-      }
-    }
-    return null;
-  },
-
-  removeReference: function(node) {
-    var self = this;
-
-    if (_.isNull(node)) {
-      throw new Error("Invalid argument.");
-    }
-
-    var referenceForReplacement = null;
-    var sortedKeys = _.chain(this._remoteNodes)
-      .keys()
-      .map(function (key) { return parseInt(key); })
-      .sortBy()
-      .value();
-    for (var i = _.size(sortedKeys) - 1; i >= 0; i--) {
-      var k = sortedKeys[i];
-      var n = this._getEntry(k);
-      if (node.equals(n)) {
-        break;
-      }
-      if (!_.isNull(n)) {
-        referenceForReplacement = n;
-      }
-    }
-
-    _.each(sortedKeys, function(key) {
-      if (node.equals(self._getEntry(key))) {
-        if (_.isNull(referenceForReplacement)) {
-          self._unsetEntry(key);
-        } else {
-          self._setEntry(key, referenceForReplacement);
-        }
-      }
-    });
-
-    _.chain(this._references.getSuccessors())
-      .reject(function(s) { return s.equals(node); })
-      .each(function(s) { self.addReference(s); });
-  },
-
-  getFirstFingerTableEntries: function(count) {
-    var result = [];
-    var sortedKeys = _.chain(this._remoteNodes)
-      .keys()
-      .map(function (key) { return parseInt(key); })
-      .sortBy()
-      .value();
-    for (var i = 0; i < _.size(sortedKeys); i++) {
-      var k = sortedKeys[i];
-      if (!_.isNull(this._getEntry(k))) {
-        if (_.isEmpty(result) || !_.last(result).equals(this._getEntry(k))) {
-          result.push(this._getEntry(k));
-        }
-      }
-      if (_.size(result) >= count) {
-        break;
-      }
-    }
-    return result;
-  },
-
-  containsReference: function(reference) {
-    if (_.isNull(reference)) {
-      throw new Error("Invalid argument.");
-    }
-
-    return _.some(this._remoteNodes, function(node) {
-      return node.equals(reference);
-    });
-  },
-
-  getStatus: function() {
-    var self = this;
-    return _(this._localId.getLength()).times(function(i) {
-      return _.isNull(self._getEntry(i)) ? null : self._getEntry(i).toNodeInfo();
-    });
-  },
-
-  toString: function() {
-    var self = this;
-
-    return "[FingerTable]\n" + _.chain(this._remoteNodes)
-      .keys()
-      .map(function(key) { return parseInt(key); })
-      .sortBy()
-      .map(function(key, i, keys) {
-        if (i === 0 || (i > 0 && !self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])))) {
-          return "[" + key + "] " + self._getEntry(key).toString();
-        }
-
-        if (i === _.size(keys) - 1 ||
-            (i < _.size(keys) - 1 && !self._getEntry(keys[i]).equals(self._getEntry(keys[i + 1])))) {
-          return "[" + key + "]";
-        }
-
-        if ((i > 1 &&
-             self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])) &&
-             !self._getEntry(keys[i]).equals(self._getEntry(keys[i - 2]))) ||
-            (i === 1 && self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])))) {
-          return "..."
-        }
-
-        if (i > 1 &&
-            self._getEntry(keys[i]).equals(self._getEntry(keys[i - 1])) &&
-            self._getEntry(keys[i]).equals(self._getEntry(keys[i - 2]))) {
-          return "";
-        }
-
-        throw new Error("Unknown situation.");
-      })
-      .reject(function(str) { return str === ""; })
-      .value()
-      .join("\n") + "\n";
-  }
-};
-
-module.exports = FingerTable;
-
-},{"underscore":43}],51:[function(require,module,exports){
-var _ = require('underscore');
-var Utils = require('./Utils');
-
-var FixFingerTask = function(localNode, references) {
-  this._localNode = localNode;
-  this._references = references;
-  this._timer = null;
-};
-
-FixFingerTask.create = function(localNode, references, config) {
-  if (!Utils.isValidNumber(config.fixFingerTaskInterval) ||
-      config.fixFingerTaskInterval < 0) {
-    config.fixFingerTaskInterval = 30000;
-  }
-
-  var task = new FixFingerTask(localNode, references);
-  var timer = setInterval(function() {
-    task.run();
-  }, config.fixFingerTaskInterval);
-  task._timer = timer;
-  return task;
-};
-
-FixFingerTask.prototype = {
-  run: function() {
-    var self = this;
-
-    var nextFingerToFix = _.random(this._localNode.nodeId.getLength() - 1);
-    var lookForID = this._localNode.nodeId.addPowerOfTwo(nextFingerToFix);
-    this._localNode.findSuccessor(lookForID, function(successor, error) {
-      if (error) {
-        console.log(error);
-      }
-
-      if (!_.isNull(successor) &&
-          !self._references.containsReference(successor)) {
-        self._references.addReference(successor);
-      }
-    });
-  },
-
-  shutdown: function() {
-    if (!_.isNull(this._timer)) {
-      clearInterval(this._timer);
-    }
-  }
-};
-
-module.exports = FixFingerTask;
-
-},{"./Utils":63,"underscore":43}],52:[function(require,module,exports){
-var _ = require('underscore');
-var CryptoJS = require('crypto-js');
-var Utils = require('./Utils');
-
-var ID = function(bytes) {
-  _.each(bytes, function(b) {
-    if (_.isNaN(b) || !_.isNumber(b) || b < 0x00 || 0xff < b) {
-      throw new Error("Invalid argument.");
-    }
-  });
-  if (_.size(bytes) !== ID._BYTE_SIZE) {
-    throw new Error("Invalid argument.");
-  }
-
-  this._bytes = _.last(bytes, ID._BYTE_SIZE);
-};
-
-ID._BYTE_SIZE = 32;
-
-ID.create = function(str) {
-  if (!Utils.isNonemptyString(str)) {
-    throw new Error("Invalid argument.");
-  }
-
-  return new ID(ID._createBytes(str));
-};
-
-ID._createBytes = function(str) {
-  var hash = CryptoJS.SHA256(str).toString(CryptoJS.enc.Hex);
-  return ID._createBytesfromHexString(hash);
-};
-
-ID._createBytesfromHexString = function(str) {
-  if (!Utils.isNonemptyString(str)) {
-    throw new Error("Invalid argument.");
-  }
-
-  return _(Math.floor(_.size(str) / 2)).times(function(i) {
-    return parseInt(str.substr(i * 2, 2), 16);
-  });
-};
-
-ID.fromHexString = function(str) {
-  return new ID(ID._createBytesfromHexString(str));
-};
-
-ID.prototype = {
-  isInInterval: function(fromId, toId) {
-    if (_.isNull(fromId) || _.isNull(toId)) {
-      throw new Error("Invalid arguments.");
-    }
-
-    if (fromId.equals(toId)) {
-      return !this.equals(fromId);
-    }
-
-    if (fromId.compareTo(toId) < 0) {
-      return (this.compareTo(fromId) > 0 && this.compareTo(toId) < 0);
-    }
-
-    var minId = new ID(_(_.size(this._bytes)).times(function() {
-      return 0x00;
-    }));
-    var maxId = new ID(_(_.size(this._bytes)).times(function() {
-      return 0xff;
-    }));
-    return ((!fromId.equals(maxId) && this.compareTo(fromId) > 0 && this.compareTo(maxId) <= 0) ||
-            (!minId.equals(toId) && this.compareTo(minId) >= 0 && this.compareTo(toId) < 0));
-  },
-
-  addPowerOfTwo: function(powerOfTwo) {
-    if (!_.isNumber(powerOfTwo)) {
-      throw new Error("Invalid argument.");
-    }
-    if (powerOfTwo < 0 || powerOfTwo >= this.getLength()) {
-      throw new Error("Power of two out of index.");
-    }
-
-    var copy = _.clone(this._bytes);
-    var indexOfBytes = _.size(this._bytes) - 1 - Math.floor(powerOfTwo / 8);
-    var valueToAdd = [1, 2, 4, 8, 16, 32, 64, 128][powerOfTwo % 8];
-    for (var i = indexOfBytes; i >= 0; i--) {
-      copy[i] += valueToAdd;
-      valueToAdd = copy[i] >> 8;
-      copy[i] &= 0xff;
-      if (valueToAdd === 0) {
-        break;
-      }
-    }
-
-    return new ID(copy);
-  },
-
-  compareTo: function(id) {
-    if (this.getLength() !== id.getLength()) {
-      throw new Error("Invalid argument.");
-    }
-
-    var bytes = _.zip(this._bytes, id._bytes);
-    for (var i = 0; i < bytes.length; i++) {
-      if (bytes[i][0] < bytes[i][1]) {
-        return -1;
-      } else if (bytes[i][0] > bytes[i][1]) {
-        return 1;
-      }
-    }
-    return 0;
-  },
-
-  equals: function(id) {
-    return this.compareTo(id) === 0;
-  },
-
-  getLength: function() {
-    return _.size(this._bytes) * 8;
-  },
-
-  toHexString: function() {
-    return _.map(this._bytes, function(b) {
-      var str = b.toString(16);
-      return b < 0x10 ? "0" + str : str;
-    }).join("");
-  }
-};
-
-module.exports = ID;
-
-},{"./Utils":63,"crypto-js":14,"underscore":43}],53:[function(require,module,exports){
-var _ = require('underscore');
-var NodeFactory = require('./NodeFactory');
-var EntryList = require('./EntryList');
-var Entry = require('./Entry');
-var ReferenceList = require('./ReferenceList');
-var ID = require('./ID');
-var StabilizeTask = require('./StabilizeTask');
-var FixFingerTask = require('./FixFingerTask');
-var CheckPredecessorTask = require('./CheckPredecessorTask');
-var Utils = require('./Utils');
-
-var LocalNode = function(chord, config) {
-  this._chord = chord;
-  this._config = config;
-  this.nodeId = null;
-  this._peerId = null;
-  this._nodeFactory = null;
-  this._tasks = {};
-  this._entries = null;
-  this._references = null;
-};
-
-LocalNode.create = function(chord, config, callback) {
-  var localNode = new LocalNode(chord, config);
-  NodeFactory.create(localNode, config, function(peerId, factory, error) {
-    if (error) {
-      callback(null, error);
-      return;
-    }
-
-    localNode.setup(peerId, factory);
-
-    callback(localNode);
-  });
-};
-
-LocalNode.prototype = {
-  setup: function(peerId, nodeFactory) {
-    this._peerId = peerId;
-    this.nodeId = ID.create(peerId);
-    this._nodeFactory = nodeFactory;
-    this._entries = new EntryList();
-    this._references = new ReferenceList(this.nodeId, this._entries, this._config);
-  },
-
-  _createTasks: function() {
-    this._tasks = {
-      stabilizeTask: StabilizeTask.create(this, this._references, this._entries, this._config),
-      fixFingerTask: FixFingerTask.create(this, this._references, this._config),
-      checkPredecessorTask: CheckPredecessorTask.create(this._references, this._config)
-    };
-  },
-
-  _shutdownTasks: function() {
-    _.invoke(this._tasks, 'shutdown');
-  },
-
-  create: function(callback) {
-    this._createTasks();
-
-    callback(this._peerId);
-  },
-
-  join: function(bootstrapId, callback) {
-    var self = this;
-
-    this._nodeFactory.create({peerId: bootstrapId}, function(bootstrapNode, error) {
-      if (error) {
-        callback(null, error);
-        return;
-      }
-
-      self._references.addReference(bootstrapNode);
-
-      bootstrapNode.findSuccessor(self.nodeId, function(successor, error) {
-        if (error) {
-          self._references.removeReference(bootstrapNode);
-          callback(null, error);
-          return;
-        }
-
-        self._references.addReference(successor);
-
-        var _notifyAndCopyEntries = function(node, callback) {
-          node.notifyAndCopyEntries(self, function(refs, entries, error) {
-            if (error) {
-              callback(null, null, error);
-              return;
-            }
-
-            if (_.size(refs) === 1) {
-              self._references.addReferenceAsPredecessor(successor);
-              callback(refs, entries);
-              return;
-            }
-
-            if (self.nodeId.isInInterval(refs[0].nodeId, successor.nodeId)) {
-              self._references.addReferenceAsPredecessor(refs[0]);
-              callback(refs, entries);
-              return;
-            }
-
-            self._references.addReference(refs[0]);
-            _notifyAndCopyEntries(refs[0], callback);
-          });
-        };
-        _notifyAndCopyEntries(successor, function(refs, entries, error) {
-          if (error) {
-            console.log(error);
-            self._createTasks();
-            callback(self._peerId);
-            return;
-          }
-
-          _.each(refs, function(ref) {
-            if (!_.isNull(ref) && !ref.equals(self) &&
-                !self._references.containsReference(ref)) {
-              self._references.addReference(ref);
-            }
-          });
-
-          self._entries.addAll(entries);
-
-          _.defer(function() {
-            self._chord.onentriesinserted(_.invoke(entries, 'toJson'));
-          });
-
-          self._createTasks();
-
-          callback(self._peerId);
-        });
-      });
-    });
-  },
-
-  leave: function(callback) {
-    var self = this;
-
-    this._shutdownTasks();
-
-    var successor = this._references.getSuccessor();
-    if (!_.isNull(successor) && !_.isNull(this._references.getPredecessor())) {
-      successor.leavesNetwork(this._references.getPredecessor());
-    }
-
-    this._nodeFactory.destroy();
-
-    callback();
-  },
-
-  insert: function(key, value, callback) {
-    var id = ID.create(key);
-    var entry;
-    try {
-      entry = new Entry(id, value);
-    } catch (e) {
-      callback(e);
-      return;
-    }
-    this.findSuccessor(id, function(successor, error) {
-      if (error) {
-        callback(error);
-        return;
-      }
-
-      successor.insertEntry(entry, callback);
-    });
-  },
-
-  retrieve: function(key, callback) {
-    var id = ID.create(key);
-    this.findSuccessor(id, function(successor, error) {
-      if (error) {
-        callback(null, error);
-        return;
-      }
-
-      successor.retrieveEntries(id, function(entries, error) {
-        if (error) {
-          callback(null, error);
-          return;
-        }
-
-        callback(_.map(entries, function(entry) { return entry.value; }));
-      });
-    });
-  },
-
-  remove: function(key, value, callback) {
-    var id = ID.create(key);
-    var entry;
-    try {
-      entry = new Entry(id, value);
-    } catch (e) {
-      callback(e);
-      return;
-    }
-    this.findSuccessor(id, function(successor, error) {
-      if (error) {
-        callback(error);
-        return;
-      }
-
-      successor.removeEntry(entry, callback);
-    });
-  },
-
-  findSuccessor: function(key, callback) {
-    var self = this;
-
-    if (_.isNull(key)) {
-      callback(null, new Error("Invalid argument."));
-    }
-
-    var successor = this._references.getSuccessor();
-    if (_.isNull(successor)) {
-      callback(this);
-      return;
-    }
-
-    if (key.isInInterval(this.nodeId, successor.nodeId) ||
-        key.equals(successor.nodeId)) {
-      callback(successor);
-      return;
-    }
-
-    var closestPrecedingNode = this._references.getClosestPrecedingNode(key);
-    closestPrecedingNode.findSuccessor(key, function(successor, error) {
-      if (error) {
-        console.log(error);
-        self._references.removeReference(closestPrecedingNode);
-        self.findSuccessor(key, callback);
-        return;
-      }
-
-      callback(successor);
-    });
-  },
-
-  notifyAndCopyEntries: function(potentialPredecessor, callback) {
-    var self = this;
-
-    var references = this.notify(potentialPredecessor, function(references) {
-      var entries = self._entries.getEntriesInInterval(self.nodeId, potentialPredecessor.nodeId);
-
-      callback(references, entries);
-    });
-  },
-
-  notify: function(potentialPredecessor, callback) {
-    var references = [];
-    if (!_.isNull(this._references.getPredecessor())) {
-      references.push(this._references.getPredecessor());
-    } else {
-      references.push(potentialPredecessor);
-    }
-    references = references.concat(this._references.getSuccessors());
-
-    this._references.addReferenceAsPredecessor(potentialPredecessor);
-
-    callback(references);
-  },
-
-  leavesNetwork: function(predecessor) {
-    this._references.removeReference(this._references.getPredecessor());
-    this._references.addReferenceAsPredecessor(predecessor);
-  },
-
-  insertReplicas: function(replicas) {
-    var self = this;
-
-    this._entries.addAll(replicas);
-
-    _.defer(function() {
-      self._chord.onentriesinserted(_.invoke(replicas, 'toJson'));
-    });
-  },
-
-  removeReplicas: function(sendingNodeId, replicas) {
-    var self = this;
-
-    if (_.size(replicas) !== 0) {
-      this._entries.removeAll(replicas);
-
-      _.defer(function() {
-        self._chord.onentriesremoved(_.invoke(replicas, 'toJson'));
-      });
-
-      return;
-    }
-
-    var allReplicasToRemove = this._entries.getEntriesInInterval(this.nodeId, sendingNodeId);
-    this._entries.removeAll(allReplicasToRemove);
-
-    _.defer(function() {
-      self._chord.onentriesremoved(_.invoke(allReplicasToRemove, 'toJson'));
-    });
-  },
-
-  insertEntry: function(entry, callback) {
-    var self = this;
-
-    if (!_.isNull(this._references.getPredecessor()) &&
-        !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
-      this._references.getPredecessor().insertEntry(entry, callback);
-      return;
-    }
-
-    this._entries.add(entry);
-
-    _.defer(function() {
-      self._chord.onentriesinserted([entry.toJson()]);
-    });
-
-    _.each(this._references.getSuccessors(), function(successor) {
-      successor.insertReplicas([entry]);
-    });
-
-    callback(true);
-  },
-
-  retrieveEntries: function(id, callback) {
-    if (!_.isNull(this._references.getPredecessor()) &&
-        !id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
-      this._references.getPredecessor().retrieveEntries(id, callback);
-      return;
-    }
-
-    callback(this._entries.getEntries(id));
-  },
-
-  removeEntry: function(entry, callback) {
-    var self = this;
-
-    if (!_.isNull(this._references.getPredecessor()) &&
-        !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
-      this._references.getPredecessor().removeEntry(entry, callback);
-      return;
-    }
-
-    this._entries.remove(entry);
-
-    _.defer(function() {
-      self._chord.onentriesremoved([entry.toJson()]);
-    });
-
-    _.each(this._references.getSuccessors(), function(successor) {
-      successor.removeReplicas(self.nodeId, [entry]);
-    });
-
-    callback(true);
-  },
-
-  getStatuses: function() {
-    var ret = this._references.getStatuses();
-    ret['entries'] = this._entries.getStatus();
-    return ret;
-  },
-
-  getPeerId: function() {
-    return this._peerId;
-  },
-
-  toNodeInfo: function() {
-    return {
-      nodeId: this.nodeId.toHexString(),
-      peerId: this._peerId
-    };
-  },
-
-  equals: function(node) {
-    if (_.isNull(node)) {
-      return false;
-    }
-    return this.nodeId.equals(node.nodeId);
-  },
-
-  toString: function() {
-    return this.nodeId.toHexString() + " (" + this._peerId + ")";
-  },
-
-  toDisplayString: function() {
-    return [
-      this._references.toString(),
-      this._entries.toString()
-    ].join("\n") + "\n";
-  }
-};
-
-module.exports = LocalNode;
-
-},{"./CheckPredecessorTask":44,"./Entry":48,"./EntryList":49,"./FixFingerTask":51,"./ID":52,"./NodeFactory":55,"./ReferenceList":57,"./StabilizeTask":61,"./Utils":63,"underscore":43}],54:[function(require,module,exports){
-var _ = require('underscore');
-var ID = require('./ID');
-var Request = require('./Request');
-var Entry = require('./Entry');
-var Utils = require('./Utils');
-
-var Node = function(nodeInfo, nodeFactory, connectionFactory, requestHandler, config) {
-  if (!Node.isValidNodeInfo(nodeInfo)) {
-    throw new Error("Invalid arguments.");
-  }
-
-  if (!Utils.isValidNumber(config.requestTimeout) ||
-      config.requestTimeout < 0) {
-    config.requestTimeout = 180000;
-  }
-
-  this._peerId = nodeInfo.peerId;
-  this.nodeId = ID.create(nodeInfo.peerId);
-  this._nodeFactory = nodeFactory;
-  this._connectionFactory = connectionFactory;
-  this._requestHandler = requestHandler;
-  this._config = config;
-};
-
-Node.isValidNodeInfo = function(nodeInfo) {
-  if (!_.isObject(nodeInfo)) {
-    return false;
-  }
-  if (!Utils.isNonemptyString(nodeInfo.peerId)) {
-    return false;
-  }
-  return true;
-};
-
-Node.prototype = {
-  findSuccessor: function(key, callback) {
-    var self = this;
-
-    if (!(key instanceof ID)) {
-      callback(null);
-      return;
-    }
-
-    this._sendRequest('FIND_SUCCESSOR', {
-      key: key.toHexString()
-    }, {
-      success: function(result) {
-        var nodeInfo = result.successorNodeInfo;
-        self._nodeFactory.create(nodeInfo, callback);
-      },
-
-      error: function(error) {
-        callback(null, error);
-      }
-    });
-  },
-
-  notifyAndCopyEntries: function(potentialPredecessor, callback) {
-    var self = this;
-
-    this._sendRequest('NOTIFY_AND_COPY', {
-      potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
-    }, {
-      success: function(result) {
-        if (!_.isArray(result.referencesNodeInfo) || !_.isArray(result.entries)) {
-          callback(null, null);
-          return;
-        }
-
-        self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
-          var entries = _.chain(result.entries)
-            .map(function(entry) {
-              try {
-                return Entry.fromJson(entry);
-              } catch (e) {
-                return null;
-              }
-            })
-            .reject(function(entry) { return _.isNull(entry); })
-            .value();
-
-          callback(references, entries);
-        });
-      },
-
-      error: function(error) {
-        callback(null, null, error);
-      }
-    });
-  },
-
-  notify: function(potentialPredecessor, callback) {
-    var self = this;
-
-    this._sendRequest('NOTIFY', {
-      potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
-    }, {
-      success: function(result) {
-        if (!_.isArray(result.referencesNodeInfo)) {
-          callback(null);
-          return;
-        }
-
-        self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
-          callback(references);
-        });
-      },
-
-      error: function(error) {
-        callback(null, error);
-      }
-    });
-  },
-
-  leavesNetwork: function(predecessor) {
-    var self = this;
-
-    if (_.isNull(predecessor)) {
-      throw new Error("Invalid argument.");
-    }
-
-    this._sendRequest('LEAVES_NETWORK', {
-      predecessorNodeInfo: predecessor.toNodeInfo()
-    });
-  },
-
-  ping: function(callback) {
-    this._sendRequest('PING', {}, {
-      success: function(result) {
-        callback(true);
-      },
-
-      error: function(error) {
-        callback(false, error);
-      }
-    });
-  },
-
-  insertReplicas: function(replicas) {
-    this._sendRequest('INSERT_REPLICAS', {replicas: _.invoke(replicas, 'toJson')});
-  },
-
-  removeReplicas: function(sendingNodeId, replicas) {
-    this._sendRequest('REMOVE_REPLICAS', {
-      sendingNodeId: sendingNodeId.toHexString(),
-      replicas: _.invoke(replicas, 'toJson')
-    });
-  },
-
-  insertEntry: function(entry, callback) {
-    this._sendRequest('INSERT_ENTRY', {
-      entry: entry.toJson()
-    }, {
-      success: function(result) {
-        callback();
-      },
-
-      error: function(error) {
-        callback(error);
-      }
-    });
-  },
-
-  retrieveEntries: function(id, callback) {
-    var self = this;
-
-    this._sendRequest('RETRIEVE_ENTRIES', {
-      id: id.toHexString()
-    }, {
-      success: function(result) {
-        if (!_.isArray(result.entries)) {
-          callback(null, new Error("Received invalid data from " + self._peerId));
-          return;
-        }
-
-        var entries = _.chain(result.entries)
-          .map(function(entry) {
-            try {
-              return Entry.fromJson(entry);
-            } catch (e) {
-              return null;
-            }
-          })
-          .reject(function(entry) { return _.isNull(entry); })
-          .value();
-        callback(entries);
-      },
-
-      error: function(error) {
-        callback(null, error);
-      }
-    });
-  },
-
-  removeEntry: function(entry, callback) {
-    this._sendRequest('REMOVE_ENTRY', {
-      entry: entry.toJson()
-    }, {
-      success: function(result) {
-        callback();
-      },
-
-      error: function(error) {
-        callback(error);
-      }
-    });
-  },
-
-  _sendRequest: function(method, params, callbacks) {
-    var self = this;
-
-    this._connectionFactory.create(this._peerId, function(connection, error) {
-      if (error) {
-        if (!_.isUndefined(callbacks)) {
-          callbacks.error(error);
-        }
-        return;
-      }
-
-      var request = Request.create(method, params);
-
-      if (!_.isUndefined(callbacks)) {
-        var timer = setTimeout(function() {
-          var callback = self._nodeFactory.deregisterCallback(request.requestId);
-          if (!_.isNull(callback)) {
-            callbacks.error(new Error(method + " request to " + self._peerId + " timed out."));
-          }
-        }, self._config.requestTimeout);
-
-        self._nodeFactory.registerCallback(request.requestId, _.once(function(response) {
-          clearTimeout(timer);
-
-          if (response.status !== 'SUCCESS') {
-            callbacks.error(new Error(response.result.message));
-            return;
-          }
-
-          callbacks.success(response.result);
-        }));
-      }
-
-      try {
-        connection.send(request);
-      } finally {
-        connection.close();
-      }
-    });
-  },
-
-  onRequestReceived: function(request) {
-    var self = this;
-
-    this._requestHandler.handle(request, function(response) {
-      self._connectionFactory.create(self._peerId, function(connection, error) {
-        if (error) {
-          return;
-        }
-
-        try {
-          connection.send(response);
-        } finally {
-          connection.close();
-        }
-      });
-    });
-  },
-
-  onResponseReceived: function(response) {
-    var callback = this._nodeFactory.deregisterCallback(response.requestId);
-    if (!_.isNull(callback)) {
-      callback(response);
-    }
-  },
-
-  disconnect: function() {
-    this._connectionFactory.removeConnection(this._peerId);
-  },
-
-  getPeerId: function() {
-    return this._peerId;
-  },
-
-  toNodeInfo: function() {
-    return {
-      nodeId: this.nodeId.toHexString(),
-      peerId: this._peerId
-    };
-  },
-
-  equals: function(node) {
-    if (_.isNull(node)) {
-      return false;
-    }
-    return this.nodeId.equals(node.nodeId);
-  },
-
-  toString: function() {
-    return this.nodeId.toHexString() + " (" + this._peerId + ")";
-  }
-};
-
-module.exports = Node;
-
-},{"./Entry":48,"./ID":52,"./Request":58,"./Utils":63,"underscore":43}],55:[function(require,module,exports){
-var _ = require('underscore');
-var Node = require('./Node');
-var ConnectionFactory = require('./ConnectionFactory');
-var RequestHandler = require('./RequestHandler');
-var ID = require('./ID');
-var Utils = require('./Utils');
-
-var NodeFactory = function(localNode, config) {
-  var self = this;
-
-  if (_.isNull(localNode)) {
-    throw new Error("Invalid arguments.");
-  }
-
-  this._localNode = localNode;
-  this._config = config;
-  this._connectionFactory = null;
-  this._requestHandler = new RequestHandler(localNode, this);
-  this._callbacks = {};
-};
-
-NodeFactory.create = function(localNode, config, callback) {
-  if (_.isNull(localNode)) {
-    callback(null, null);
-  }
-
-  var nodeFactory = new NodeFactory(localNode, config);
-  ConnectionFactory.create(config, nodeFactory, function(connectionFactory, error) {
-    if (error) {
-      callback(null, null, error);
-      return;
-    }
-
-    nodeFactory._connectionFactory = connectionFactory;
-
-    callback(connectionFactory.getPeerId(), nodeFactory);
-  });
-};
-
-NodeFactory.prototype = {
-  create: function(nodeInfo, callback) {
-    var self = this;
-
-    if (!Node.isValidNodeInfo(nodeInfo)) {
-      callback(null, new Error("Invalid node info."));
-      return;
-    }
-
-    if (this._localNode.nodeId.equals(ID.create(nodeInfo.peerId))) {
-      callback(this._localNode);
-      return;
-    }
-
-    var node = new Node(nodeInfo, this, this._connectionFactory, this._requestHandler, this._config);
-
-    callback(node);
-  },
-
-  createAll: function(nodesInfo, callback) {
-    var self = this;
-
-    if (_.isEmpty(nodesInfo)) {
-      callback([]);
-      return;
-    }
-    this.create(_.first(nodesInfo), function(node, error) {
-      self.createAll(_.rest(nodesInfo), function(nodes) {
-        if (!error) {
-          callback([node].concat(nodes));
-        } else {
-          console.log(error);
-          callback(nodes);
-        }
-      });
-    });
-  },
-
-  onRequestReceived: function(peerId, request) {
-    this.create({peerId: peerId}, function(node, error) {
-      if (error) {
-        console.log(error);
-        return;
-      }
-      node.onRequestReceived(request);
-    });
-  },
-
-  onResponseReceived: function(peerId, response) {
-    this.create({peerId: peerId}, function(node, error) {
-      if (error) {
-        console.log(error);
-        return;
-      }
-      node.onResponseReceived(response);
-    });
-  },
-
-  registerCallback: function(key, callback) {
-    this._callbacks[key] = callback;
-  },
-
-  deregisterCallback: function(key) {
-    if (!_.has(this._callbacks, key)) {
-      return null;
-    }
-    var callback = this._callbacks[key];
-    delete this._callbacks[key];
-    return callback;
-  },
-
-  destroy: function() {
-    this._connectionFactory.destroy();
-  }
-};
-
-module.exports = NodeFactory;
-
-},{"./ConnectionFactory":47,"./ID":52,"./Node":54,"./RequestHandler":59,"./Utils":63,"underscore":43}],56:[function(require,module,exports){
-var _ = require('underscore');
-var Peer = require('peerjs');
-var Utils = require('./Utils');
-
-var PeerAgent = function(config, callbacks) {
-  var self = this;
-
-  if (!_.isObject(config.peer)) {
-    config.peer = {id: undefined, options: {}};
-  }
-  if (!_.isObject(config.peer.options)) {
-    config.peer.options = {};
-  }
-  if (!Utils.isValidNumber(config.connectRateLimit) ||
-      config.connectRateLimit < 0) {
-    config.connectRateLimit = 3000;
-  }
-  if (!Utils.isValidNumber(config.connectionOpenTimeout) ||
-      config.connectionOpenTimeout < 0) {
-    config.connectionOpenTimeout = 30000;
-  }
-
-  if (!_.isString(config.peer.id)) {
-    this._peer = new Peer(config.peer.options);
-  } else {
-    this._peer = new Peer(config.peer.id, config.peer.options);
-  }
-  this._config = config;
-  this._callbacks = callbacks;
-  this._waitingTimer = null;
-  this.connect = _.throttle(this.connect, config.connectRateLimit);
-
-  var onPeerSetup = _.once(callbacks.onPeerSetup);
-
-  this._peer.on('open', function(id) {
-    self._peer.on('connection', function(conn) {
-      callbacks.onConnection(conn.peer, conn);
-    });
-
-    self._peer.on('close', function() {
-      callbacks.onPeerClosed();
-    });
-
-    onPeerSetup(id);
-  });
-
-  this._peer.on('error', function(error) {
-    var match = error.message.match(/Could not connect to peer (\w+)/);
-    if (match) {
-      if (!self.isWaitingOpeningConnection()) {
-        return;
-      }
-
-      clearTimeout(self._waitingTimer);
-      self._waitingTimer = null;
-
-      var peerId = match[1];
-      callbacks.onConnectionOpened(peerId, null, error);
-      return;
-    }
-
-    console.log(error);
-    onPeerSetup(null, error);
-  });
-};
-
-PeerAgent.prototype = {
-  connect: function(peerId) {
-    var self = this;
-
-    var conn = this._peer.connect(peerId);
-    if (!conn) {
-      var error = new Error("Failed to open connection to " + peerId + ".");
-      this._callbacks.onConnectionOpened(peerId, null, error);
-      return;
-    }
-
-    this._waitingTimer = setTimeout(function() {
-      if (!self.isWaitingOpeningConnection()) {
-        return;
-      }
-
-      self._waitingTimer = null;
-
-      var error = new Error("Opening connection to " + peerId + " timed out.");
-      self._callbacks.onConnectionOpened(peerId, null, error);
-    }, this._config.connectionOpenTimeout);
-
-    conn.on('open', function() {
-      if (!self.isWaitingOpeningConnection()) {
-        conn.close();
-        return;
-      }
-
-      clearTimeout(self._waitingTimer);
-      self._waitingTimer = null;
-
-      self._callbacks.onConnectionOpened(peerId, conn);
-    });
-  },
-
-  isWaitingOpeningConnection: function() {
-    return !_.isNull(this._waitingTimer);
-  },
-
-  destroy: function() {
-    this._peer.destroy();
-  },
-
-  getPeerId: function() {
-    return this._peer.id;
-  }
-};
-
-module.exports = PeerAgent;
-
-},{"./Utils":63,"peerjs":64,"underscore":43}],57:[function(require,module,exports){
-var _ = require('underscore');
-var FingerTable = require('./FingerTable');
-var SuccessorList = require('./SuccessorList');
-
-var ReferenceList = function(localId, entries, config) {
-  if (_.isNull(localId) || _.isNull(entries)) {
-    throw new Error("Invalid arguments.");
-  }
-
-  this._localId = localId;
-  this._fingerTable = new FingerTable(localId, this);
-  this._successors = new SuccessorList(localId, entries, this, config);
-  this._predecessor = null;
-  this._entries = entries;
-};
-
-ReferenceList.prototype = {
-  addReference: function(reference) {
-    if (_.isNull(reference)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (reference.nodeId.equals(this._localId)) {
-      return;
-    }
-
-    this._fingerTable.addReference(reference);
-    this._successors.addSuccessor(reference);
-  },
-
-  removeReference: function(reference) {
-    if (_.isNull(reference)) {
-      throw new Error("Invalid argument.");
-    }
-
-    this._fingerTable.removeReference(reference);
-    this._successors.removeReference(reference);
-
-    if (reference.equals(this.getPredecessor())) {
-      this._predecessor = null;
-    }
-
-    this.disconnectIfUnreferenced(reference);
-  },
-
-  getSuccessor: function() {
-    return this._successors.getDirectSuccessor();
-  },
-
-  getSuccessors: function() {
-    return this._successors.getReferences();
-  },
-
-  getClosestPrecedingNode: function(key) {
-    if (_.isNull(key)) {
-      throw new Error("Invalid argument.");
-    }
-
-    var foundNodes = [];
-
-    var closestNodeFT = this._fingerTable.getClosestPrecedingNode(key);
-    if (!_.isNull(closestNodeFT)) {
-      foundNodes.push(closestNodeFT);
-    }
-    var closestNodeSL = this._successors.getClosestPrecedingNode(key);
-    if (!_.isNull(closestNodeSL)) {
-      foundNodes.push(closestNodeSL);
-    }
-    if (!_.isNull(this._predecessor) &&
-        key.isInInterval(this._predecessor.nodeId, this._localId)) {
-      foundNodes.push(this._predecessor);
-    }
-
-    foundNodes.sort(function(a, b) {
-        return a.nodeId.compareTo(b.nodeId);
-    });
-    var keyIndex = _.chain(foundNodes)
-      .map(function(node) { return node.nodeId; })
-      .sortedIndex(function(id) { return id.equals(key); })
-      .value();
-    var index = (_.size(foundNodes) + (keyIndex - 1)) % _.size(foundNodes);
-    var closestNode = foundNodes[index];
-    if (_.isNull(closestNode)) {
-      throw new Error("Closest node must not be null.");
-    }
-    return closestNode;
-  },
-
-  getPredecessor: function() {
-    return this._predecessor;
-  },
-
-  addReferenceAsPredecessor: function(potentialPredecessor) {
-    if (_.isNull(potentialPredecessor)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (potentialPredecessor.nodeId.equals(this._localId)) {
-      return;
-    }
-
-    if (_.isNull(this._predecessor) ||
-        potentialPredecessor.nodeId.isInInterval(this._predecessor.nodeId, this._localId)) {
-      this.setPredecessor(potentialPredecessor);
-    }
-
-    this.addReference(potentialPredecessor);
-  },
-
-  setPredecessor: function(potentialPredecessor) {
-    if (_.isNull(potentialPredecessor)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (potentialPredecessor.nodeId.equals(this._localId)) {
-      return;
-    }
-
-    if (potentialPredecessor.equals(this._predecessor)) {
-      return;
-    }
-
-    var formerPredecessor = this._predecessor;
-    this._predecessor = potentialPredecessor;
-    if (!_.isNull(formerPredecessor)) {
-      this.disconnectIfUnreferenced(formerPredecessor);
-
-      var size = this._successors.getSize();
-      if (this._successors.getCapacity() === size) {
-        var lastSuccessor = _.last(this._successors.getReferences());
-        lastSuccessor.removeReplicas(this._predecessor.nodeId, []);
-      }
-    } else {
-      var entriesToRep = this._entries.getEntriesInInterval(this._predecessor.nodeId, this._localId);
-      var successors = this._successors.getReferences();
-      _.each(successors, function(successor) {
-        successor.insertReplicas(entriesToRep);
-      });
-    }
-  },
-
-  disconnectIfUnreferenced: function(removedReference) {
-    if (_.isNull(removedReference)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (!this.containsReference(removedReference)) {
-      removedReference.disconnect();
-    }
-  },
-
-  getFirstFingerTableEntries: function(count) {
-    return this._fingerTable.getFirstFingerTableEntries(count);
-  },
-
-  containsReference: function(reference) {
-    if (_.isNull(reference)) {
-      throw new Error("Invalid argurment.");
-    }
-
-    return (this._fingerTable.containsReference(reference) ||
-            this._successors.containsReference(reference) ||
-            reference.equals(this._predecessor));
-  },
-
-  getStatuses: function() {
-    return {
-      successors: this._successors.getStatus(),
-      fingerTable: this._fingerTable.getStatus(),
-      predecessor: _.isNull(this.getPredecessor()) ? null : this.getPredecessor().toNodeInfo()
-    };
-  },
-
-  toString: function() {
-    return [
-      this._successors.toString(),
-      "[Predecessor]\n" + (_.isNull(this.getPredecessor()) ? "" : this.getPredecessor().toString()) + "\n",
-      this._fingerTable.toString()
-    ].join("\n") + "\n";
-  }
-};
-
-module.exports = ReferenceList;
-
-},{"./FingerTable":50,"./SuccessorList":62,"underscore":43}],58:[function(require,module,exports){
-var _ = require('underscore');
-var CryptoJS = require('crypto-js');
-var Response = require('./Response');
-var Utils = require('./Utils');
-
-var Request = function(method, params, requestId, timestamp) {
-  if (!Utils.isNonemptyString(method) || !_.isObject(params) ||
-      !Utils.isNonemptyString(requestId) || !_.isNumber(timestamp)) {
-    throw new Error("Invalid argument.");
-  }
-
-  this.method = method;
-  this.params = params;
-  this.requestId = requestId;
-  this.timestamp = timestamp;
-};
-
-Request.create = function(method, params) {
-  return new Request(method, params, Request._createId(), _.now());
-};
-
-Request._createId = function() {
-  return CryptoJS.SHA256(Math.random().toString()).toString();
-};
-
-Request.isRequest = function(data) {
-  return !Response.isResponse(data);
-};
-
-Request.fromJson = function(json) {
-  if (!_.isObject(json)) {
-    throw new Error("Invalid argument.");
-  }
-  return new Request(json.method, json.params, json.requestId, json.timestamp);
-};
-
-Request.prototype = {
-  toJson: function() {
-    return {
-      method: this.method,
-      params: this.params,
-      requestId: this.requestId,
-      timestamp: this.timestamp
-    };
-  }
-};
-
-module.exports = Request;
-
-},{"./Response":60,"./Utils":63,"crypto-js":14,"underscore":43}],59:[function(require,module,exports){
-var _ = require('underscore');
-var ID = require('./ID');
-var Response = require('./Response');
-var Entry = require('./Entry');
-var Utils = require('./Utils');
-
-var RequestHandler = function(localNode, nodeFactory) {
-  this._localNode = localNode;
-  this._nodeFactory = nodeFactory;
-}
-
-RequestHandler.prototype = {
-  handle: function(request, callback) {
-    var self = this;
-
-    switch (request.method) {
-    case 'FIND_SUCCESSOR':
-      if (!Utils.isNonemptyString(request.params.key)) {
-        this._sendFailureResponse(request, callback);
-        return;
-      }
-
-      var key = ID.fromHexString(request.params.key);
-      this._localNode.findSuccessor(key, function(successor, error) {
-        if (error) {
-          console.log(error);
-          self._sendFailureResponse(request, callback);
-          return;
-        }
-
-        self._sendSuccessResponse({
-          successorNodeInfo: successor.toNodeInfo()
-        }, request, callback);
-      });
-      break;
-
-    case 'NOTIFY_AND_COPY':
-      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
-      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
-        if (error) {
-          console.log(error);
-          this._sendFailureResponse(request, callback);
-          return;
-        }
-
-        self._localNode.notifyAndCopyEntries(node, function(references, entries) {
-          if (_.isNull(references) || _.isNull(entries)) {
-            self._sendFailureResponse(request, callback);
-            return;
-          }
-
-          self._sendSuccessResponse({
-            referencesNodeInfo: _.invoke(references, 'toNodeInfo'),
-            entries: _.invoke(entries, 'toJson')
-          }, request, callback);
-        });
-      });
-      break;
-
-    case 'NOTIFY':
-      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
-      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
-        if (error) {
-          console.log(error);
-          self._sendFailureResponse(request, callback);
-          return;
-        }
-
-        self._localNode.notify(node, function(references) {
-          if (_.isNull(references)) {
-            self._sendFailureResponse(request, callback);
-            return;
-          }
-
-          self._sendSuccessResponse({
-            referencesNodeInfo: _.invoke(references, 'toNodeInfo')
-          }, request, callback);
-        });
-      });
-      break;
-
-    case 'PING':
-      self._sendSuccessResponse({}, request, callback);
-      break;
-
-    case 'INSERT_REPLICAS':
-      if (!_.isArray(request.params.replicas)) {
-        return;
-      }
-      var replicas = _.chain(request.params.replicas)
-        .map(function(replica) {
-          try {
-            return Entry.fromJson(replica);
-          } catch (e) {
-            return null;
-          }
-        })
-        .reject(function(replica) { return _.isNull(replica); })
-        .value();
-      self._localNode.insertReplicas(replicas);
-      break;
-
-    case 'REMOVE_REPLICAS':
-      var sendingNodeId;
-      try {
-          sendingNodeId = ID.fromHexString(request.params.sendingNodeId);
-      } catch (e) {
-        return;
-      }
-      if (!_.isArray(request.params.replicas)) {
-        return;
-      }
-      var replicas = _.chain(request.params.replicas)
-        .map(function(replica) {
-          try {
-            return Entry.fromJson(replica);
-          } catch (e) {
-            return null;
-          }
-        })
-        .reject(function(replica) { return _.isNull(replica); })
-        .value();
-      self._localNode.removeReplicas(sendingNodeId, replicas);
-      break;
-
-    case 'INSERT_ENTRY':
-      var entry;
-      try {
-        entry = Entry.fromJson(request.params.entry);
-      } catch (e) {
-        self._sendFailureResponse(request, callback);;
-        return;
-      }
-      self._localNode.insertEntry(entry, function(inserted) {
-        if (!inserted) {
-          self._sendFailureResponse(request, callback);
-        } else {
-          self._sendSuccessResponse({}, request, callback);
-        }
-      });
-      break;
-
-    case 'RETRIEVE_ENTRIES':
-      var id;
-      try {
-        id = ID.fromHexString(request.params.id);
-      } catch (e) {
-        self._sendFailureResponse(request, callback);
-        return;
-      }
-      self._localNode.retrieveEntries(id, function(entries) {
-        if (_.isNull(entries)) {
-          self._sendFailureResponse(request, callback);
-        } else {
-          self._sendSuccessResponse({
-            entries: _.invoke(entries, 'toJson')
-          }, request, callback);
-        }
-      });
-      break;
-
-    case 'REMOVE_ENTRY':
-      var entry;
-      try {
-        entry = Entry.fromJson(request.params.entry);
-      } catch (e) {
-        self._sendFailureResponse(request, callback);
-        return;
-      }
-      self._localNode.removeEntry(entry, function(removed) {
-        if (!removed) {
-          self._sendFailureResponse(request, callback);
-        } else {
-          self._sendSuccessResponse({}, request, callback);
-        }
-      });
-      break;
-
-    case 'SHUTDOWN':
-      break;
-
-    case 'LEAVES_NETWORK':
-      var predecessorNodeInfo = request.params.predecessorNodeInfo;
-      this._nodeFactory.create(predecessorNodeInfo, function(predecessor, error) {
-        if (error) {
-          console.log(error);
-          return;
-        }
-
-        self._localNode.leavesNetwork(predecessor);
-      });
-      break;
-
-    default:
-      this._sendFailureResponse(request, callback);
-      break;
-    }
-  },
-
-  _sendSuccessResponse: function(result, request, callback) {
-    var self = this;
-
-    var response;
-    try {
-      response = Response.create('SUCCESS', result, request);
-    } catch (e){
-      this._sendFailureResponse(request, callback);
-      return;
-    }
-
-    callback(response);
-  },
-
-  _sendFailureResponse: function(request, callback) {
-    var response;
-    try {
-      response = Response.create('FAILED', {}, request);
-    } catch (e) {
-      callback(null);
-      return;
-    }
-
-    callback(response);
-  }
-};
-
-module.exports = RequestHandler;
-
-},{"./Entry":48,"./ID":52,"./Response":60,"./Utils":63,"underscore":43}],60:[function(require,module,exports){
-var _ = require('underscore');
-var Utils = require('./Utils');
-
-var Response = function(status, method, result, requestId, timestamp) {
-  if (!Utils.isNonemptyString(status) ||
-      !Utils.isNonemptyString(method) ||
-      !_.isObject(result) || !Utils.isNonemptyString(requestId) ||
-      !_.isNumber(timestamp)) {
-    throw new Error("Invalid argument.");
-  }
-
-  this.status = status;
-  this.method = method;
-  this.result = result;
-  this.requestId = requestId;
-  this.timestamp = timestamp;
-};
-
-Response.create = function(status, result, request) {
-  return new Response(status, request.method, result, request.requestId, _.now());
-};
-
-Response.isResponse = function(data) {
-  if (!_.isObject(data)) {
-    return false;
-  }
-  if (!Utils.isNonemptyString(data.status)) {
-    return false;
-  }
-  return true;
-};
-
-Response.fromJson = function(json) {
-  if (!_.isObject(json)) {
-    throw new Error("Invalid argument.");
-  }
-  return new Response(json.status, json.method, json.result, json.requestId, json.timestamp);
-};
-
-Response.prototype = {
-  toJson: function() {
-    return {
-      status: this.status,
-      method: this.method,
-      result: this.result,
-      requestId: this.requestId,
-      timestamp: this.timestamp
-    };
-  },
-};
-
-module.exports = Response;
-
-},{"./Utils":63,"underscore":43}],61:[function(require,module,exports){
-var _ = require('underscore');
-var Utils = require('./Utils');
-
-var StabilizeTask = function(localNode, references, entries) {
-  this._localNode = localNode;
-  this._references = references;
-  this._entries = entries;
-  this._timer = null;
-};
-
-StabilizeTask.create = function(localNode, references, entries, config) {
-  if (!Utils.isValidNumber(config.stabilizeTaskInterval) ||
-      config.stabilizeTaskInterval < 0) {
-    config.stabilizeTaskInterval = 30000;
-  }
-
-  var task = new StabilizeTask(localNode, references, entries);
-  var timer = setInterval(function() {
-    task.run();
-  }, config.stabilizeTaskInterval);
-  task._timer = timer;
-  return task;
-};
-
-StabilizeTask.prototype = {
-  run: function() {
-    var self = this;
-
-    var successors = this._references.getSuccessors();
-    if (_.isEmpty(successors)) {
-      return;
-    }
-    var successor = _.first(successors);
-
-    successor.notify(this._localNode, function(references, error) {
-      if (error) {
-        console.log(error);
-        self._references.removeReference(successor);
-        return;
-      }
-
-      var RemoveUnreferencedSuccessorsAndAddReferences = function(references) {
-        _.chain(successors)
-          .reject(function(s) {
-            return (s.equals(successor) ||
-                    (!_.isNull(self._references.getPredecessor()) &&
-                     s.equals(self._references.getPredecessor())) ||
-                    _.some(references, function(r) { return r.equals(s); }));
-          })
-          .each(function(s) {
-            self._references.removeReference(s);
-          });
-
-        _.each(references, function(ref) {
-          self._references.addReference(ref);
-        });
-
-        var currentSuccessor = self._references.getSuccessor();
-        if (!currentSuccessor.equals(successor)) {
-          currentSuccessor.ping(function(isAlive, error) {
-            if (error) {
-              console.log(error);
-              self._references.removeReference(currentSuccessor);
-            }
-          });
-        }
-      };
-
-      if (_.size(references) > 0 && !_.isNull(references[0])) {
-        if (!self._localNode.equals(references[0])) {
-          successor.notifyAndCopyEntries(self._localNode, function(references, entries, error) {
-            if (error) {
-              console.log(error);
-              return;
-            }
-
-            self._entries.addAll(entries);
-
-            RemoveUnreferencedSuccessorsAndAddReferences(references);
-          });
-        }
-      }
-
-      RemoveUnreferencedSuccessorsAndAddReferences(references);
-    });
-  },
-
-  shutdown: function() {
-    if (!_.isNull(this._timer)) {
-      clearInterval(this._timer);
-    }
-  }
-};
-
-module.exports = StabilizeTask;
-
-},{"./Utils":63,"underscore":43}],62:[function(require,module,exports){
-var _ = require('underscore');
-var Utils = require('./Utils');
-
-var SuccessorList = function(localId, entries, references, config) {
-  if (_.isNull(localId) || _.isNull(entries) || _.isNull(references)) {
-    throw new Error("Invalid argument.");
-  }
-
-  if (!Utils.isValidNumber(config.numberOfEntriesInSuccessorList) ||
-      config.numberOfEntriesInSuccessorList < 1) {
-    config.numberOfEntriesInSuccessorList = 3;
-  }
-
-  this._localId = localId;
-  this._capacity = config.numberOfEntriesInSuccessorList;
-  this._entries = entries;
-  this._references = references;
-  this._successors = [];
-};
-
-SuccessorList.prototype = {
-  addSuccessor: function(node) {
-    if (_.isNull(node)) {
-      throw new Error("Invalid argument.");
-    }
-
-    if (this.containsReference(node)) {
-      return;
-    }
-
-    if (_.size(this._successors) >= this._capacity &&
-        node.nodeId.isInInterval(_.last(this._successors).nodeId, this._localId)) {
-      return;
-    }
-
-    var inserted = false;
-    for (var i = 0; i < _.size(this._successors); i++) {
-      if (node.nodeId.isInInterval(this._localId, this._successors[i].nodeId)) {
-        Utils.insert(this._successors, i, node);
-        inserted = true;
-        break;
-      }
-    }
-    if (!inserted) {
-      this._successors.push(node);
-      inserted = true;
-    }
-
-    var fromId;
-    var predecessor = this._references.getPredecessor();
-    if (!_.isNull(predecessor)) {
-      fromId = predecessor.nodeId;
-    } else {
-      var precedingNode = this._references.getClosestPrecedingNode(this._localId);
-      if (!_.isNull(precedingNode)) {
-        fromId = precedingNode.nodeId;
-      } else {
-        fromId = this._localId;
-      }
-    }
-    var toId = this._localId;
-    var entriesToReplicate = this._entries.getEntriesInInterval(fromId, toId);
-    node.insertReplicas(entriesToReplicate);
-
-    if (_.size(this._successors) > this._capacity) {
-      var nodeToDelete = this._successors.pop();
-
-      nodeToDelete.removeReplicas(this._localId, []);
-
-      this._references.disconnectIfUnreferenced(nodeToDelete);
-    }
-  },
-
-  getDirectSuccessor: function() {
-    if (_.isEmpty(this._successors)) {
-return null;
-    }
-    return this._successors[0];
-  },
-
-  getClosestPrecedingNode: function(idToLookup) {
-    if (_.isNull(idToLookup)) {
-      throw new Error("Invalid argument.");
-    }
-
-    for (var i = _.size(this._successors) - 1; i >= 0; i--) {
-      if (this._successors[i].nodeId.isInInterval(this._localId, idToLookup)) {
-        return this._successors[i];
-      }
-    }
-    return null;
-  },
-
-  getReferences: function() {
-    return this._successors;
-  },
-
-  removeReference: function(node) {
-    var self = this;
-
-    if (_.isNull(node)) {
-      throw new Error("Invalid argument.");
-    }
-
-    this._successors = _.reject(this._successors, function(s) {
-      return s.equals(node);
-    });
-
-    var referencesOfFingerTable = this._references.getFirstFingerTableEntries(this._capacity);
-    referencesOfFingerTable = _.reject(referencesOfFingerTable, function(r) {
-      return r.equals(node);
-    });
-    _.each(referencesOfFingerTable, function(reference) {
-      self.addSuccessor(reference);
-    });
-  },
-
-  getSize: function() {
-    return _.size(this._successors);
-  },
-
-  getCapacity: function() {
-    return this._capacity;
-  },
-
-  containsReference: function(node) {
-    if (_.isNull(node)) {
-      throw new Error("Invalid argument.");
-    }
-
-    return !_.isUndefined(_.find(this._successors, function(n) {
-      return n.equals(node);
-    }));
-  },
-
-  getStatus: function() {
-    return _.invoke(this._successors, 'toNodeInfo');
-  },
-
-  toString: function() {
-    return "[Successors]\n" + _.map(this._successors, function(node, index) {
-      return "[" + index + "] " + node.toString();
-    }).join("\n") + "\n";
-  }
-};
-
-module.exports = SuccessorList;
-
-},{"./Utils":63,"underscore":43}],63:[function(require,module,exports){
-var _ = require('underscore');
-
-var Utils = {
-  isNonemptyString: function(value) {
-    return _.isString(value) && !_.isEmpty(value);
-  },
-
-  isValidNumber: function(number) {
-    return !_.isNaN(number) && _.isNumber(number);
-  },
-
-  insert: function(list, index, item) {
-    list.splice(index, 0, item);
-  }
-};
-
-var Set = function(items, comparator) {
-  var self = this;
-
-  this._items = [];
-  this._comparator = comparator;
-
-  _.each(items, function(item) {
-    self.put(item);
-  });
-};
-
-Set.prototype = {
-  put: function(item) {
-    if (this.size() === 0 || !this.has(item)) {
-      this._items.push(item);
-    }
-  },
-
-  remove: function(item) {
-    var self = this;
-    this._items = _.reject(this._items, function(_item) {
-      return self._comparator(_item, item);
-    });
-  },
-
-  size: function() {
-    return _.size(this._items);
-  },
-
-  has: function(item) {
-    var self = this;
-    return _.some(this._items, function(_item) {
-      return self._comparator(_item, item);
-    });
-  },
-
-  items: function() {
-    return this._items;
-  }
-};
-
-Utils.Set = Set;
-
-var Queue = function() {
-  this._items = [];
-};
-
-Queue.prototype = {
-  enqueue: function(item) {
-    this._items.push(item);
-  },
-
-  dequeue: function() {
-    if (_.isEmpty(this._items)) {
-      return null;
-    }
-    return this._items.shift();
-  },
-
-  first: function() {
-    if (_.isEmpty(this._items)) {
-      return null;
-    }
-    return _.first(this._items);
-  },
-
-  last: function() {
-    if (_.isEmpty(this._items)) {
-      return null;
-    }
-    return _.last(this._items);
-  },
-
-  size: function() {
-    return _.size(this._items);
-  },
-};
-
-Utils.Queue = Queue;
-
-var Cache = function(capacity, cacheOutCallback) {
-  this._cache = {};
-  this._useHistory = [];
-  this._capacity = capacity;
-  this._cacheOutCallback = cacheOutCallback;
-};
-
-Cache.prototype = {
-  get: function(key) {
-    if (!_.has(this._cache, key)) {
-      return null;
-    }
-    this._updateUseHistory(key);
-    return this._cache[key];
-  },
-
-  set: function(key, item) {
-    var self = this;
-
-    this._cache[key] = item;
-    this._updateUseHistory(key);
-    if (_.size(this._cache) > this._capacity) {
-      var keysToRemove = _.rest(this._useHistory, this._capacity);
-      this._useHistory = _.first(this._useHistory, this._capacity);
-      _.each(keysToRemove, function(key) {
-        var item = self._cache[key];
-        delete self._cache[key];
-        self._cacheOutCallback(item);
-      });
-    }
-  },
-
-  remove: function(key) {
-    if (!this.has(key)) {
-      return;
-    }
-    this._useHistory = _.reject(this._useHistory, function(k) {
-      return k === key;
-    });
-    delete this._cache[key];
-  },
-
-  has: function(key) {
-    return _.has(this._cache, key);
-  },
-
-  keys: function() {
-    return _.keys(this._cache);
-  },
-
-  _updateUseHistory: function(key) {
-    this._useHistory = _.reject(this._useHistory, function(k) {
-      return k === key;
-    });
-    this._useHistory.unshift(key);
-  }
-};
-
-Utils.Cache = Cache;
-
-module.exports = Utils;
-
-},{"underscore":43}],64:[function(require,module,exports){
-module.exports=require(42)
 },{}]},{},[1])

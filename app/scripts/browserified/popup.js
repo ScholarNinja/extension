@@ -20,14 +20,23 @@ $(document).ready(function (){
     // Setup messaging
     var port = chrome.runtime.connect({name: 'popup'});
     port.onMessage.addListener(function(response) {
-        console.log('Received search response', response);
-
-        for (var i = 0; i < response.length; i++) {
-            var html = '<div class="result"><h2><a href="' + response[i].url  +'" target="_blank">' +
-                response[i].title  + '</a></h2>' +
-                '<p>' + response[i].authors + ' &mdash; ' + response[i].journal +
-                ' (' + response[i].year + ')</p></div>';
-            $('#results').append(html);
+        if(response.status === 'FAIL') {
+            console.log('Something went wrong:', response);
+        } else {
+            console.log('Received search response', response);
+            var results = response.results;
+            if(results.length === 0) {
+                $('#log').html('No results found.');
+            } else {
+                for (var i = 0; i < results.length; i++) {
+                    var html = '<div class="result"><h2><a href="' + results[i].url  +'" target="_blank">' +
+                        results[i].title  + '</a></h2>' +
+                        '<p>' + results[i].authors + ' &mdash; ' + results[i].journal +
+                        ' (' + results[i].year + ')</p></div>';
+                    $('#results').append(html);
+                    // <p class="abstract">' + results[i].abstract + '</p>
+                }
+            }
         }
     });
 
@@ -38,8 +47,11 @@ $(document).ready(function (){
             method: 'GET',
             query: $(this).val()
         };
-        console.log(message);
-        port.postMessage(message);
+
+        if(message.query.length > 0) {
+            console.log(message);
+            port.postMessage(message);
+        }
     }));
 });
 
