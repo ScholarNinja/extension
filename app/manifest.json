@@ -11,6 +11,7 @@
     "background": {
         "scripts": [
             "scripts/chromereload.js",
+            "scripts/vendor/peer.js",
             "scripts/browserified/background.js"
         ]
     },

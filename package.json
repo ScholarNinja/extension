@@ -28,7 +28,6 @@
     "grunt-usemin": "~0.1.10",
     "grunt-mocha": "~0.4.0",
     "grunt-svgmin": "~0.2.0",
-    "browserify-shim": "~3.5.0",
     "grunt-concurrent": "~0.4.0",
     "load-grunt-tasks": "~0.2.0",
     "time-grunt": "~0.2.0",
@@ -38,12 +37,5 @@
   },
   "engines": {
     "node": ">=0.8.0"
-  },
-  "browserify": {
-    "transform": ["browserify-shim"]
-  },
-  "browser": {
-    "peerjs": "./node_modules/peerjs/dist/peer.js"
-  },
-  "browserify-shim": "./shims.js"
+  }
 }

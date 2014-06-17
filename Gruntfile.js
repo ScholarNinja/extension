@@ -299,7 +299,6 @@ module.exports = function (grunt) {
                     '<%= config.app %>/scripts/browserified/content.js': ['app/scripts/content.js'],
                     '<%= config.app %>/scripts/browserified/popup.js': ['app/scripts/popup.js'],
                     '<%= config.app %>/scripts/browserified/background.js': ['app/scripts/background.js'],
-                    '<%= config.app %>/scripts/browserified/document.js': ['app/scripts/document.js']
                 },
                 options: {
                 }
@@ -307,7 +306,8 @@ module.exports = function (grunt) {
             dist: {
                 files: {
                     '<%= config.dist %>/content.js': ['app/scripts/content.js'],
-                    '<%= config.dist %>/popup.js': ['app/scripts/popup.js']
+                    '<%= config.dist %>/popup.js': ['app/scripts/popup.js'],
+                    '<%= config.dist %>/background.js': ['app/scripts/background.js']
                 },
             }
         }
