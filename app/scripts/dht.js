@@ -26,6 +26,7 @@ var config = {
     connectionPoolSize: 10,
     connectionOpenTimeout: 30000,
     requestTimeout: 180000,
+    debug: true,
     stabilizeTaskInterval: 30000,
     fixFingerTaskInterval: 30000,
     checkPredecessorTaskInterval: 30000
@@ -44,7 +45,7 @@ var errorHandler = function(error) {
     }
 };
 
-var createOrJoin = function(myPeerId) {
+var createOrJoin = function() {
     var peers = [];
     $.get(
         'http://' + peerJsConfig.host + ':9001/',
@@ -52,10 +53,12 @@ var createOrJoin = function(myPeerId) {
             // Array of peers on DHT network
             data.map(function(p) {
                 // Don't connect to our PeerId, or any eliminated peers
-                if (p !== chord.getPeerId() &&
-                    eliminatedPeers.indexOf(p) === -1 &&
-                    p !== myPeerId)
-                {
+                var myPeerId;
+                if(chord._localNode) {
+                    myPeerId = chord.getPeerId;
+                }
+
+                if (p !== myPeerId && eliminatedPeers.indexOf(p) === -1) {
                     console.log('Peer', p);
                     peers.push(p);
                 }
@@ -67,7 +70,7 @@ var createOrJoin = function(myPeerId) {
                 console.log('Joining', peers[0]);
                 chord.join(peers[0], join);
             } else if (eliminatedPeers.length !== 0) {
-                console.log('Unable to join any of the existing peers. Failing.');
+                console.log('Fatal: Unable to join any of the existing peers. Failing.');
             } else {
                 // Create a new chord network
                 console.log('Creating new network');
@@ -91,8 +94,8 @@ var join = function(myPeerId, error) {
         errorHandler(error);
         // Retry with another peer.
         var currentPeer = error.message.substr(22,16);
-        eliminatedPeers.push(currentPeer);
-        createOrJoin(myPeerId, error);
+        eliminatedPeers.push(currentPeer, myPeerId);
+        createOrJoin();
     } else {
         updatePeerId(myPeerId);
     }
