@@ -67,7 +67,7 @@ var eliminatedPeers = [];
 var peerJsConfig = {
     host: '54.187.230.130',
     port: 9000,
-    debug: 3,
+    debug: 1,
     config: {
         iceServers: [
             {url: 'stun:stun.l.google.com:19302'},
@@ -84,7 +84,7 @@ var config = {
     connectionPoolSize: 10,
     connectionOpenTimeout: 30000,
     requestTimeout: 180000,
-    debug: true,
+    debug: false,
     stabilizeTaskInterval: 30000,
     fixFingerTaskInterval: 30000,
     checkPredecessorTaskInterval: 30000
