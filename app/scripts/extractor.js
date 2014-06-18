@@ -4,7 +4,17 @@
 var $ = require('jquery');
 var SHA256 = require('crypto-js/sha256');
 
-var linksRegex = /^https?:\/\/([^.]*\.)?(dx.doi.org|github.com|bitbucket.(com|org)|r-project.org)/;
+var links = [
+    'dx.doi.org',
+    'github.com',
+    'bitbucket.(com|org)',
+    'r-project.org'
+];
+
+var linksRegex = new RegExp('^https?://([^.]*\\.)?(' +
+    links.join('|') +
+    ')'
+);
 
 var rules = {
     'PLOS': {
@@ -27,7 +37,6 @@ var rules = {
         year: '$(".highwire-doi-epubdate-data").text().split(", ")[1]',
         doi: '$(".elife-doi-doi").text().replace("http://dx.doi.org/", "")'
     }
-
 };
 
 var supported = function supported(url) {

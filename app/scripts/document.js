@@ -84,6 +84,7 @@ function add(doc) {
         if(error || !entry) {
             // Save document locally and to DHT, without the full text.
             documents[doc.id] = doc;
+            console.log('Added document', doc.id, 'to index.');
             dht.put(doc.id, _.omit(doc, 'fulltext'));
 
             Object.keys(fields).forEach(function (key){
@@ -93,7 +94,6 @@ function add(doc) {
                     // E.g. [title]cancer
                     var dhtKey = '[' + key + ']' + keyword;
                     dht.put(dhtKey, doc.id);
-                    // console.log('Added document', doc.id, 'to index for', dhtKey);
                 });
             });
 
@@ -101,9 +101,8 @@ function add(doc) {
                 // Add to DHT [URL]link: doc.id
                 var dhtKey = '[URL]' + link;
                 dht.put(dhtKey, doc.id);
-                // console.log('Added document', doc.id, 'to index for', dhtKey);
             });
-
+            // Update documents cache
             store(documents);
         } else {
             console.log('Document is already indexed');
@@ -208,11 +207,18 @@ function find(query, port) {
 function findByKeyword(keyword, callback) {
     // First build fieldsWithKeywords array, e.g.:
     // [{'title': keyword}, {'authors': keyword}]
-    var fieldsWithKeywords = _.map(_.keys(fields), function(field) {
-        var pair = {};
-        pair[field] = keyword;
-        return pair;
-    });
+    // Or only [{URL: keyword}] if we're looking for URL.
+    var fieldsWithKeywords;
+
+    if (keyword.match(/^http:\/\//)) {
+        fieldsWithKeywords = [{URL: keyword}];
+    } else {
+        fieldsWithKeywords = _.map(_.keys(fields), function(field) {
+            var pair = {};
+            pair[field] = keyword;
+            return pair;
+        });
+    }
 
     // Iterate through each indexed field asynchronously
     async.map(fieldsWithKeywords, findByFieldAndKeyword, function (error, fieldsAndIds) {
@@ -226,11 +232,13 @@ function findByKeyword(keyword, callback) {
                 var field = _.keys(fieldAndIds)[0];
                 var ids = _.values(fieldAndIds)[0];
                 _.each(ids, function(id) {
+                    // Score is either 1 or specific value per field
+                    var score = fields[field] ? fields[field] : 1;
                     // Adds up the scores according to boosts
                     if(result[id]) {
-                        result[id] = result[id] + fields[field];
+                        result[id] = result[id] + score;
                     } else {
-                        result[id] = fields[field];
+                        result[id] = score;
                     }
                 });
             });

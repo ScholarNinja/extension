@@ -92,10 +92,10 @@ var create = function(myPeerId, error) {
 var join = function(myPeerId, error) {
     if (error) {
         errorHandler(error);
-        // Retry with another peer.
+        // Retry with another peer after 1 second
         var currentPeer = error.message.substr(22,16);
         eliminatedPeers.push(currentPeer, myPeerId);
-        createOrJoin();
+        setTimeout(createOrJoin, 1000);
     } else {
         updatePeerId(myPeerId);
     }
