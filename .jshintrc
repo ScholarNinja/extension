@@ -19,6 +19,7 @@
     "trailing": true,
     "smarttabs": true,
     "globals" : {
+        "Chord": true,
         "chrome": true,
         "lunr": true
     }

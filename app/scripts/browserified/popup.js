@@ -3,6 +3,12 @@
 
 var $ = require('jquery');
 
+// Quick monkey-patch :)
+String.prototype.pluralize = function(count, plural) {
+    return (count === 1 ? count + ' ' + this : count + ' ' + plural);
+};
+
+
 var debounce = function (fn) {
     var timeout;
     return function () {
@@ -16,17 +22,23 @@ var debounce = function (fn) {
     };
 };
 
+var log = function() {
+    var message = Array.prototype.slice.call(arguments).join(' ');
+    $('#log').html('<p>' + message + '</p>');
+    console.log(message);
+};
+
 $(document).ready(function (){
     // Setup messaging
     var port = chrome.runtime.connect({name: 'popup'});
     port.onMessage.addListener(function(response) {
         if(response.status === 'FAIL') {
-            console.log('Something went wrong:', response);
+            log('Something went wrong:', response);
         } else {
-            console.log('Received search response', response);
+            log('Received', 'result'.pluralize(response.results.length, 'results'));
             var results = response.results;
             if(results.length === 0) {
-                $('#log').html('No results found.');
+                $('#results').html('No results found.');
             } else {
                 for (var i = 0; i < results.length; i++) {
                     var html = '<div class="result"><h2><a href="' + results[i].url  +'" target="_blank">' +
@@ -41,7 +53,7 @@ $(document).ready(function (){
     });
 
     $('input').bind('keyup', debounce(function () {
-        $('#results').empty();
+        $('#results, #log').empty();
 
         var message = {
             method: 'GET',
@@ -49,7 +61,7 @@ $(document).ready(function (){
         };
 
         if(message.query.length > 0) {
-            console.log(message);
+            log('Queried with', message.query, '...');
             port.postMessage(message);
         }
     }));

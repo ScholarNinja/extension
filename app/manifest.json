@@ -11,6 +11,8 @@
     "background": {
         "scripts": [
             "scripts/chromereload.js",
+            "scripts/vendor/underscore-min.js",
+            "scripts/vendor/sha256.js",
             "scripts/vendor/peer.js",
             "scripts/vendor/webrtc-chord.js",
             "scripts/browserified/background.js"
