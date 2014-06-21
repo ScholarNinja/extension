@@ -33,10 +33,11 @@ $(document).ready(function (){
     var port = chrome.runtime.connect({name: 'popup'});
     port.onMessage.addListener(function(response) {
         if(response.status === 'FAIL') {
-            log('Something went wrong:', response);
+            log('Something went wrong.');
         } else {
             log('Received', 'result'.pluralize(response.results.length, 'results'));
             var results = response.results;
+            console.log(JSON.stringify(results));
             if(results.length === 0) {
                 $('#results').html('No results found.');
             } else {

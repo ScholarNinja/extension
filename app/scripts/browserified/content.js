@@ -32,7 +32,8 @@ var links = [
 
 var linksRegex = new RegExp('^https?://([^.]*\\.)?(' +
     links.join('|') +
-    ')'
+    ')',
+    'i' // Ignore case
 );
 
 var rules = {
