@@ -2,7 +2,7 @@
     "name": "Scholar Ninja",
     "version": "0.0.2",
     "manifest_version": 2,
-    "description": "Distributed open index of academic publications",
+    "description": "Distributed open index of scholarly content",
     "icons": {
         "16": "images/icon-16.png",
         "128": "images/icon-128.png"
@@ -12,6 +12,7 @@
         "scripts": [
             "scripts/chromereload.js",
             "scripts/vendor/peer.js",
+            "scripts/vendor/webrtc-chord.js",
             "scripts/browserified/background.js"
         ]
     },

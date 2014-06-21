@@ -1,19 +1,25 @@
 'use strict';
 
-var Chord = require('webrtc-chord-browserify');
-
+var _ = require('underscore');
 var $ = require('jquery');
-
 var eliminatedPeers = [];
+var chord;
 
 var peerJsConfig = {
-    host: '54.187.230.130',
+    host: '85.159.214.207',
     port: 9000,
     debug: 1,
     config: {
         iceServers: [
+            // Using public STUN/TURN for now.
             {url: 'stun:stun.l.google.com:19302'},
-            {url: 'turn:scholar@54.187.230.130', credential: 'ninja'}
+            {
+                url: 'turn:numb.viagenie.ca',
+                credential: 'muazkh',
+                username: 'webrtc@live.com'
+            }
+            // {url: 'stun:scholar.ninja:3478'},
+            // {url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
         ]
     }
 };
@@ -24,7 +30,7 @@ var config = {
     },
     numberOfEntriesInSuccessorList: 3,
     connectionPoolSize: 10,
-    connectionOpenTimeout: 30000,
+    connectionOpenTimeout: 5000,
     requestTimeout: 180000,
     debug: false,
     stabilizeTaskInterval: 30000,
@@ -32,11 +38,26 @@ var config = {
     checkPredecessorTaskInterval: 30000
 };
 
-// Create a new chord instance
-var chord = new Chord(config);
+// Use the existing peer ID, if we have it.
+chrome.storage.local.get('peer', function (obj) {
+
+    if(obj.peer !== undefined) {
+        config.peer.id = obj.peer.id;
+    }
+});
+
+chord = new Chord(config);
+
 
 var updatePeerId = function(peerId) {
     console.log('My peer ID: ' + peerId);
+    chrome.storage.local.set({peer: {id: peerId}});
+    // Restore the DHT entries, if we have them.
+    chrome.storage.local.get('entries', function (obj) {
+        if(obj.entries !== undefined) {
+            chord.setEntries(obj.entries);
+        }
+    });
 };
 
 var errorHandler = function(error) {
@@ -64,7 +85,7 @@ var createOrJoin = function() {
                 }
             });
 
-            // First peeer
+            // First peer
             if (peers[0]) {
                 // Join an existing chord network
                 console.log('Joining', peers[0]);
@@ -101,10 +122,14 @@ var join = function(myPeerId, error) {
     }
 };
 
-
 window.onunload = window.onbeforeunload = function() {
     chord.leave();
 };
+
+chord.onentriesinserted = _.debounce(function() {
+    console.log('Storing entries locally.');
+    chrome.storage.local.set({entries: chord.getEntries()});
+}, 10000);
 
 module.exports = chord;
 module.exports.get = chord.retrieve;
