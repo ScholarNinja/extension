@@ -5,11 +5,12 @@ var rule = extractor.supported(document.URL);
 
 
 if(rule) {
-    console.log('Hello, this is Scholar Ninja content script. Parsing ', rule);
+    console.log('Hello, this is Scholar Ninja content script. Parsing', rule);
 
     var message = extractor.extract(document, rule);
 
-    var port = chrome.runtime.connect({name: 'content'});
-    port.postMessage(message);
-
+    if(message) {
+        var port = chrome.runtime.connect({name: 'content'});
+        port.postMessage(message);
+    }
 }
