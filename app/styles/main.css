@@ -1,9 +1,8 @@
 body {
-    height: 240px;
-    width: 360px;
-    padding: 6px;
-    margin: 10px;
-    font-family: 'FiraSans';
+  width: 360px;
+  padding: 6px;
+  margin: 10px;
+  font-family: 'FiraSans';
 }
 
 h1 {
@@ -62,6 +61,6 @@ a {
 }
 
 #log {
-  text-align: center;
+  font-size: 14px;
   color: #ccc;
 }
