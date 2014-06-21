@@ -69,15 +69,11 @@ var peerJsConfig = {
     debug: 1,
     config: {
         iceServers: [
-            // Using public STUN/TURN for now.
+            // Using public STUN for now.
             {url: 'stun:stun.l.google.com:19302'},
-            {
-                url: 'turn:numb.viagenie.ca',
-                credential: 'muazkh',
-                username: 'webrtc@live.com'
-            }
+            {url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
             // {url: 'stun:scholar.ninja:3478'},
-            // {url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
+
         ]
     }
 };
