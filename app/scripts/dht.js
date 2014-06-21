@@ -30,7 +30,7 @@ var config = {
     },
     numberOfEntriesInSuccessorList: 3,
     connectionPoolSize: 10,
-    connectionOpenTimeout: 5000,
+    connectionOpenTimeout: 10000,
     requestTimeout: 180000,
     debug: false,
     stabilizeTaskInterval: 30000,
