@@ -6,7 +6,7 @@ A distributed open search engine for scholarly content, fully contained within a
 
 # More info
 
-Coming soon. In the mean time, read blogepost at: [An open search engine for scholarly content](http://juretriglav.si)
+Coming soon. In the mean time, read blogpost at: [An open search engine for scholarly content](http://juretriglav.si)
 
 # License 
 
