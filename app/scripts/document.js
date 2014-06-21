@@ -33,6 +33,8 @@ function restore() {
             documents = obj.documents;
         }
     });
+
+    // Also serialize DHT entries
 }
 
 restore();
@@ -67,8 +69,10 @@ function get(ref, callback) {
     } else {
         dht.get(ref, function(entries, error) {
             if(error) {
-                callback(error, null);
-            } else if(entries[0] || entries.length === 0)  {
+                callback(error);
+            } else if(entries.length === 0) {
+                callback('Does not exist.');
+            } else {
                 // Cache locally
                 documents[ref] = entries[0];
                 callback(null, entries[0]);
@@ -79,9 +83,9 @@ function get(ref, callback) {
 
 function add(doc) {
     // Try to get document, don't index it if it already exists:
-    get(doc.id, function(error, entry) {
+    get(doc.id, function(error) {
         // Document doesn't exist
-        if(error || !entry) {
+        if(error) {
             // Save document locally and to DHT, without the full text.
             documents[doc.id] = doc;
             console.log('Added document', doc.id, 'to index.');
@@ -96,6 +100,8 @@ function add(doc) {
                     dht.put(dhtKey, doc.id);
                 });
             });
+
+            // Cache node's entries locally
 
             doc.links.forEach(function(link) {
                 // Add to DHT [URL]link: doc.id
@@ -177,7 +183,7 @@ function find(query, port) {
             var scores = {};
             var keys = [];
             _.each(keywordsIdsAndScores, function(idsAndScores) {
-                keys = _.keys(idsAndScores);
+                keys.push(_.keys(idsAndScores));
                 _.each(idsAndScores, function (score, id) {
                     if(scores[id]) {
                         scores[id] = scores[id] + score;
@@ -186,7 +192,7 @@ function find(query, port) {
                     }
                 });
             });
-            var matchingDocuments = _.intersection(keys);
+            var matchingDocuments = _.intersection.apply(_, keys);
             matchingDocuments = _.sortBy(matchingDocuments, function (key) {
                 return -scores[key];
             });
