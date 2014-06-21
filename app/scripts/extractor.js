@@ -8,7 +8,8 @@ var links = [
     'dx.doi.org',
     'github.com',
     'bitbucket.(com|org)',
-    'r-project.org'
+    'r-project.org',
+    'sourceforge.net'
 ];
 
 var linksRegex = new RegExp('^https?://([^.]*\\.)?(' +
@@ -22,8 +23,8 @@ var rules = {
         journal: '$(".logo:first img").attr("alt")',
         title: '$(".header h1").text().trim()',
         authors: '$(".authors:first .person").map(function(e) { return $(this).children().remove().end().text().trim().replace(/[\\s,]+$/g, ""); }).get().join(", ")',
-        fulltext: '$(".article").html()',
         abstract: '$(".abstract").text()',
+        fulltext: '$(".article").html()',
         year: '$(".date-doi-line li:first").text().split(", ")[1]',
         doi: '$(".header > ul.date-doi-line > li:nth-child(2)").text().substr(5)'
     },
@@ -32,10 +33,30 @@ var rules = {
         journal: '"eLife"',
         title: '$(".page-title").text()',
         authors: '$(".elife-article-author-item").map(function() { return $(this).text() }).get().join(", ")',
-        fulltext: '$("#main-text").html() + $("#references").html()',
         abstract: '$("#abstract").text()',
+        fulltext: '$("#main-text").html() + $("#references").html()',
         year: '$(".highwire-doi-epubdate-data").text().split(", ")[1]',
         doi: '$(".elife-doi-doi").text().replace("http://dx.doi.org/", "")'
+    },
+    'ScienceDirect': {
+        url: /sciencedirect.com\/science\/article\/pii\//,
+        journal: '$(".centerPane .head .title a span").text()',
+        title: '$("h1.svTitle").text()',
+        authors: '$(".authorGroup .authorName").map(function() { return $(this).text()}).get().join(", ")',
+        abstract: '$(".abstract.svAbstract").text()',
+        fulltext: '$(".svArticle.section").html() + $(".refText").html()',
+        year: '$(".volIssue").text().match(/ ([1-2]\\d\\d\\d)/)[1]',
+        doi: '$(".doiLink .doi").text().substr(6)'
+    },
+    'peerJ': {
+        url: /peerj.com\/articles\//,
+        journal: '"PeerJ"',
+        title: '$("h1.article-title").text()',
+        authors: '$(".article-authors span.contrib .name").map(function() { return $(this).text() }).get().join(", ")',
+        abstract: '$("article .abstract").text()',
+        fulltext: '$("article main").html() + $("footer .ref-list").html()',
+        year: '$(".article-dates dd time").get()[0].innerHTML.split("-")[0]',
+        doi: '$(".self-citation a:first").text().replace("http://dx.doi.org/", "")'
     }
 };
 
@@ -71,9 +92,9 @@ var extract = function extract(document, rule) {
         message.id = SHA256(message);
     }
 
-    message.fulltext = eval(rule.fulltext);
+    message.fulltext = $(eval(rule.fulltext));
     message.method = 'POST';
-    message.links = $(message.fulltext).find('a').
+    message.links = message.fulltext.find('a').
         map(function(i,e) {
             var url = e.getAttribute('href');
             if(url && url.match(linksRegex)) {
@@ -81,7 +102,16 @@ var extract = function extract(document, rule) {
             }
         }
     ).get();
-    return message;
+
+    // We don't need HTML anymore and text is preferred for indexing
+    message.fulltext = message.fulltext.text();
+
+    if(message.fulltext.length < 1000) {
+        console.log('You do not seem to have fulltext access to this journal.');
+        return false;
+    } else {
+        return message;
+    }
 };
 
 module.exports.supported = supported;
