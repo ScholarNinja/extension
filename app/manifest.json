@@ -1,6 +1,6 @@
 {
     "name": "Scholar Ninja",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "manifest_version": 2,
     "description": "An open distributed search engine for science",
     "icons": {

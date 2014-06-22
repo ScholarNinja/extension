@@ -71,8 +71,8 @@ var peerJsConfig = {
         iceServers: [
             // Using public STUN for now.
             {url: 'stun:stun.l.google.com:19302'},
-            // {url: 'stun:scholar.ninja:3478'},
-            // {url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
+            {url: 'stun:scholar.ninja:3478'},
+            {url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
         ]
     }
 };
