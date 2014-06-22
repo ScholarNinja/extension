@@ -2,9 +2,10 @@
     "name": "Scholar Ninja",
     "version": "0.0.3",
     "manifest_version": 2,
-    "description": "Distributed open index of scholarly content",
+    "description": "An open distributed search engine for science",
     "icons": {
         "16": "images/icon-16.png",
+        "48": "images/icon-48.png",
         "128": "images/icon-128.png"
     },
     "default_locale": "en",
