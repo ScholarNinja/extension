@@ -6,7 +6,7 @@ var eliminatedPeers = [];
 var chord;
 
 var peerJsConfig = {
-    host: '85.159.214.207',
+    host: 'scholar.ninja',
     port: 9000,
     debug: 1,
     config: {
@@ -108,6 +108,14 @@ var create = function(myPeerId, error) {
 var join = function(myPeerId, error) {
     if (error) {
         errorHandler(error);
+
+        // Hacky solution for ID is taken issue
+        if(error.type === 'unavailable-id') {
+            // Usually the taken ID will be a stale node
+            eliminatedPeers.push(config.peer.id);
+            delete config.peer.id;
+        }
+
         // Retry with another peer after 1 second
         var currentPeer = error.message.substr(22,16);
         eliminatedPeers.push(currentPeer, myPeerId);

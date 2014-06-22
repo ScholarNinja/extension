@@ -318,7 +318,7 @@ module.exports = function (grunt) {
             'browserify:debug',
             'jshint',
             'concurrent:chrome',
-            'connect:chrome',
+            // 'connect:chrome',
             'watch'
         ]);
     });
