@@ -1,7 +1,3411 @@
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        //Allow using this built library as an AMD module
+        //in another project. That other project will only
+        //see this AMD call, not the internal modules in
+        //the closure below.
+        define([], factory);
+    } else {
+        //Browser globals case. Just assign the
+        //result to a property on the global.
+        root.Chord = factory();
+    }
+}(this, function () {
+    //almond, and your modules will be inlined here
 /**
 * @license almond 0.2.9 Copyright (c) 2011-2014, The Dojo Foundation All Rights Reserved.
 * Available via the MIT or new BSD license.
 * see: http://github.com/jrburke/almond for details
 */
+//Going sloppy to avoid 'use strict' string cost, but strict practices should
+//be followed.
+/*jslint sloppy: true */
+/*global setTimeout: false */
 
-(function(e,t){typeof define=="function"&&define.amd?define([],t):e.Chord=t()})(this,function(){var e,t,n;return function(r){function v(e,t){return h.call(e,t)}function m(e,t){var n,r,i,s,o,u,a,f,c,h,p,v=t&&t.split("/"),m=l.map,g=m&&m["*"]||{};if(e&&e.charAt(0)===".")if(t){v=v.slice(0,v.length-1),e=e.split("/"),o=e.length-1,l.nodeIdCompat&&d.test(e[o])&&(e[o]=e[o].replace(d,"")),e=v.concat(e);for(c=0;c<e.length;c+=1){p=e[c];if(p===".")e.splice(c,1),c-=1;else if(p===".."){if(c===1&&(e[2]===".."||e[0]===".."))break;c>0&&(e.splice(c-1,2),c-=2)}}e=e.join("/")}else e.indexOf("./")===0&&(e=e.substring(2));if((v||g)&&m){n=e.split("/");for(c=n.length;c>0;c-=1){r=n.slice(0,c).join("/");if(v)for(h=v.length;h>0;h-=1){i=m[v.slice(0,h).join("/")];if(i){i=i[r];if(i){s=i,u=c;break}}}if(s)break;!a&&g&&g[r]&&(a=g[r],f=c)}!s&&a&&(s=a,u=f),s&&(n.splice(0,u,s),e=n.join("/"))}return e}function g(e,t){return function(){return s.apply(r,p.call(arguments,0).concat([e,t]))}}function y(e){return function(t){return m(t,e)}}function b(e){return function(t){a[e]=t}}function w(e){if(v(f,e)){var t=f[e];delete f[e],c[e]=!0,i.apply(r,t)}if(!v(a,e)&&!v(c,e))throw new Error("No "+e);return a[e]}function E(e){var t,n=e?e.indexOf("!"):-1;return n>-1&&(t=e.substring(0,n),e=e.substring(n+1,e.length)),[t,e]}function S(e){return function(){return l&&l.config&&l.config[e]||{}}}var i,s,o,u,a={},f={},l={},c={},h=Object.prototype.hasOwnProperty,p=[].slice,d=/\.js$/;o=function(e,t){var n,r=E(e),i=r[0];return e=r[1],i&&(i=m(i,t),n=w(i)),i?n&&n.normalize?e=n.normalize(e,y(t)):e=m(e,t):(e=m(e,t),r=E(e),i=r[0],e=r[1],i&&(n=w(i))),{f:i?i+"!"+e:e,n:e,pr:i,p:n}},u={require:function(e){return g(e)},exports:function(e){var t=a[e];return typeof t!="undefined"?t:a[e]={}},module:function(e){return{id:e,uri:"",exports:a[e],config:S(e)}}},i=function(e,t,n,i){var s,l,h,p,d,m=[],y=typeof n,E;i=i||e;if(y==="undefined"||y==="function"){t=!t.length&&n.length?["require","exports","module"]:t;for(d=0;d<t.length;d+=1){p=o(t[d],i),l=p.f;if(l==="require")m[d]=u.require(e);else if(l==="exports")m[d]=u.exports(e),E=!0;else if(l==="module")s=m[d]=u.module(e);else if(v(a,l)||v(f,l)||v(c,l))m[d]=w(l);else{if(!p.p)throw new Error(e+" missing "+l);p.p.load(p.n,g(i,!0),b(l),{}),m[d]=a[l]}}h=n?n.apply(a[e],m):undefined;if(e)if(s&&s.exports!==r&&s.exports!==a[e])a[e]=s.exports;else if(h!==r||!E)a[e]=h}else e&&(a[e]=n)},e=t=s=function(e,t,n,a,f){if(typeof e=="string")return u[e]?u[e](t):w(o(e,t).f);if(!e.splice){l=e,l.deps&&s(l.deps,l.callback);if(!t)return;t.splice?(e=t,t=n,n=null):e=r}return t=t||function(){},typeof n=="function"&&(n=a,a=f),a?i(r,e,t,n):setTimeout(function(){i(r,e,t,n)},4),s},s.config=function(e){return s(e)},e._defined=a,n=function(e,t,n){t.splice||(n=t,t=[]),!v(a,e)&&!v(f,e)&&(f[e]=[e,t,n])},n.amd={jQuery:!0}}(),n("lib/almond",function(){}),n("underscore",[],function(){return _}),n("cryptojs",[],function(){return CryptoJS}),n("Utils",["underscore"],function(e){var t={isNonemptyString:function(t){return e.isString(t)&&!e.isEmpty(t)},isValidNumber:function(t){return!e.isNaN(t)&&e.isNumber(t)},isPositiveNumber:function(e){return t.isValidNumber(e)&&e>0},isZeroOrPositiveNumber:function(e){return e===0||t.isPositiveNumber(e)},insert:function(e,t,n){e.splice(t,0,n)},enableDebugLog:function(e){t.debug=function(){if(e){var t=Array.prototype.slice.call(arguments),n=new Date,r=[n.getHours(),n.getMinutes(),n.getSeconds()].join(":")+":";t.unshift(r),console.log.apply(console,t)}}},debug:function(){}},n=function(t,n){var r=this;this._items=[],this._comparator=n,e.each(t,function(e){r.put(e)})};n.prototype={put:function(e){(this.size()===0||!this.has(e))&&this._items.push(e)},remove:function(t){var n=this;this._items=e.reject(this._items,function(e){return n._comparator(e,t)})},size:function(){return e.size(this._items)},has:function(t){var n=this;return e.some(this._items,function(e){return n._comparator(e,t)})},items:function(){return this._items}},t.Set=n;var r=function(){this._items=[]};r.prototype={enqueue:function(e){this._items.push(e)},dequeue:function(){return e.isEmpty(this._items)?null:this._items.shift()},first:function(){return e.isEmpty(this._items)?null:e.first(this._items)},last:function(){return e.isEmpty(this._items)?null:e.last(this._items)},size:function(){return e.size(this._items)}},t.Queue=r;var i=function(e,t){this._cache={},this._useHistory=[],this._capacity=e,this._cacheOutCallback=t};return i.prototype={get:function(t){return e.has(this._cache,t)?(this._updateUseHistory(t),this._cache[t]):null},set:function(t,n){var r=this;this._cache[t]=n,this._updateUseHistory(t);if(e.size(this._cache)>this._capacity){var i=e.rest(this._useHistory,this._capacity);this._useHistory=e.first(this._useHistory,this._capacity),e.each(i,function(e){var t=r._cache[e];delete r._cache[e],r._cacheOutCallback(t)})}},remove:function(t){if(!this.has(t))return;this._useHistory=e.reject(this._useHistory,function(e){return e===t}),delete this._cache[t]},has:function(t){return e.has(this._cache,t)},keys:function(){return e.keys(this._cache)},_updateUseHistory:function(t){this._useHistory=e.reject(this._useHistory,function(e){return e===t}),this._useHistory.unshift(t)}},t.Cache=i,t}),n("ID",["underscore","cryptojs","Utils"],function(e,t,n){var r=function(t){e.each(t,function(t){if(e.isNaN(t)||!e.isNumber(t)||t<0||255<t)throw new Error("Invalid argument.")});if(e.size(t)!==r._BYTE_SIZE)throw new Error("Invalid argument.");this._bytes=e.last(t,r._BYTE_SIZE)};return r._BYTE_SIZE=32,r.create=function(e){if(!n.isNonemptyString(e))throw new Error("Invalid argument.");return new r(r._createBytes(e))},r._createBytes=function(e){var n=t.SHA256(e).toString(t.enc.Hex);return r._createBytesfromHexString(n)},r._createBytesfromHexString=function(t){if(!n.isNonemptyString(t))throw new Error("Invalid argument.");return e(Math.floor(e.size(t)/2)).times(function(e){return parseInt(t.substr(e*2,2),16)})},r.fromHexString=function(e){return new r(r._createBytesfromHexString(e))},r.prototype={isInInterval:function(t,n){if(e.isNull(t)||e.isNull(n))throw new Error("Invalid arguments.");if(t.equals(n))return!this.equals(t);if(t.compareTo(n)<0)return this.compareTo(t)>0&&this.compareTo(n)<0;var i=new r(e(e.size(this._bytes)).times(function(){return 0})),s=new r(e(e.size(this._bytes)).times(function(){return 255}));return!t.equals(s)&&this.compareTo(t)>0&&this.compareTo(s)<=0||!i.equals(n)&&this.compareTo(i)>=0&&this.compareTo(n)<0},addPowerOfTwo:function(t){if(!e.isNumber(t))throw new Error("Invalid argument.");if(t<0||t>=this.getLength())throw new Error("Power of two out of index.");var n=e.clone(this._bytes),i=e.size(this._bytes)-1-Math.floor(t/8),s=[1,2,4,8,16,32,64,128][t%8];for(var o=i;o>=0;o--){n[o]+=s,s=n[o]>>8,n[o]&=255;if(s===0)break}return new r(n)},compareTo:function(t){if(this.getLength()!==t.getLength())throw new Error("Invalid argument.");var n=e.zip(this._bytes,t._bytes);for(var r=0;r<n.length;r++){if(n[r][0]<n[r][1])return-1;if(n[r][0]>n[r][1])return 1}return 0},equals:function(e){return this.compareTo(e)===0},getLength:function(){return e.size(this._bytes)*8},toHexString:function(){return e.map(this._bytes,function(e){var t=e.toString(16);return e<16?"0"+t:t}).join("")}},r}),n("Response",["underscore","Utils"],function(e,t){var n=function(n,r,i,s,o){if(!t.isNonemptyString(n)||!t.isNonemptyString(r)||!e.isObject(i)||!t.isNonemptyString(s)||!e.isNumber(o))throw new Error("Invalid argument.");this.status=n,this.method=r,this.result=i,this.requestId=s,this.timestamp=o};return n.create=function(t,r,i){return new n(t,i.method,r,i.requestId,e.now())},n.isResponse=function(n){return e.isObject(n)?t.isNonemptyString(n.status)?!0:!1:!1},n.fromJson=function(t){if(!e.isObject(t))throw new Error("Invalid argument.");return new n(t.status,t.method,t.result,t.requestId,t.timestamp)},n.prototype={toJson:function(){return{status:this.status,method:this.method,result:this.result,requestId:this.requestId,timestamp:this.timestamp}}},n}),n("Request",["underscore","cryptojs","Response","Utils"],function(e,t,n,r){var i=function(t,n,i,s){if(!r.isNonemptyString(t)||!e.isObject(n)||!r.isNonemptyString(i)||!e.isNumber(s))throw new Error("Invalid argument.");this.method=t,this.params=n,this.requestId=i,this.timestamp=s};return i.create=function(t,n){return new i(t,n,i._createId(),e.now())},i._createId=function(){return t.SHA256(Math.random().toString()).toString()},i.isRequest=function(e){return!n.isResponse(e)},i.fromJson=function(t){if(!e.isObject(t))throw new Error("Invalid argument.");return new i(t.method,t.params,t.requestId,t.timestamp)},i.prototype={toJson:function(){return{method:this.method,params:this.params,requestId:this.requestId,timestamp:this.timestamp}}},i}),n("Entry",["underscore","ID"],function(e,t){var n=function(t,n){if(e.isNull(t)||e.isUndefined(n))throw new Error("Invalid argument.");this.id=t,this.value=n};return n.fromJson=function(r){if(!e.isObject(r))throw new Error("invalid argument.");return new n(t.fromHexString(r.id),r.value)},n.prototype={equals:function(t){return t instanceof n?this.id.equals(t.id)&&e.isEqual(this.value,t.value):!1},toJson:function(){return{id:this.id.toHexString(),value:this.value}}},n}),n("Node",["underscore","ID","Request","Entry","Utils"],function(e,t,n,r,i){var s=function(e,n,r,o,u){if(!s.isValidNodeInfo(e))throw new Error("Invalid arguments.");i.isZeroOrPositiveNumber(u.requestTimeout)||(u.requestTimeout=18e4),this._peerId=e.peerId,this.nodeId=t.create(e.peerId),this._nodeFactory=n,this._connectionFactory=r,this._requestHandler=o,this._config=u};return s.isValidNodeInfo=function(t){return e.isObject(t)?i.isNonemptyString(t.peerId)?!0:!1:!1},s.prototype={findSuccessor:function(e,n){var r=this;if(!(e instanceof t)){n(null);return}this._sendRequest("FIND_SUCCESSOR",{key:e.toHexString()},{success:function(e){var t=e.successorNodeInfo;r._nodeFactory.create(t,n)},error:function(e){n(null,e)}})},notifyAndCopyEntries:function(t,n){var i=this;this._sendRequest("NOTIFY_AND_COPY",{potentialPredecessorNodeInfo:t.toNodeInfo()},{success:function(t){if(!e.isArray(t.referencesNodeInfo)||!e.isArray(t.entries)){n(null,null);return}i._nodeFactory.createAll(t.referencesNodeInfo,function(i){var s=e.chain(t.entries).map(function(e){try{return r.fromJson(e)}catch(t){return null}}).reject(function(t){return e.isNull(t)}).value();n(i,s)})},error:function(e){n(null,null,e)}})},notify:function(t,n){var r=this;this._sendRequest("NOTIFY",{potentialPredecessorNodeInfo:t.toNodeInfo()},{success:function(t){if(!e.isArray(t.referencesNodeInfo)){n(null);return}r._nodeFactory.createAll(t.referencesNodeInfo,function(e){n(e)})},error:function(e){n(null,e)}})},leavesNetwork:function(t){var n=this;if(e.isNull(t))throw new Error("Invalid argument.");this._sendRequest("LEAVES_NETWORK",{predecessorNodeInfo:t.toNodeInfo()})},ping:function(e){this._sendRequest("PING",{},{success:function(t){e(!0)},error:function(t){e(!1,t)}})},insertReplicas:function(t){this._sendRequest("INSERT_REPLICAS",{replicas:e.invoke(t,"toJson")})},removeReplicas:function(t,n){this._sendRequest("REMOVE_REPLICAS",{sendingNodeId:t.toHexString(),replicas:e.invoke(n,"toJson")})},insertEntry:function(e,t){this._sendRequest("INSERT_ENTRY",{entry:e.toJson()},{success:function(e){t()},error:function(e){t(e)}})},retrieveEntries:function(t,n){var i=this;this._sendRequest("RETRIEVE_ENTRIES",{id:t.toHexString()},{success:function(t){if(!e.isArray(t.entries)){n(null,new Error("Received invalid data from "+i._peerId));return}var s=e.chain(t.entries).map(function(e){try{return r.fromJson(e)}catch(t){return null}}).reject(function(t){return e.isNull(t)}).value();n(s)},error:function(e){n(null,e)}})},removeEntry:function(e,t){this._sendRequest("REMOVE_ENTRY",{entry:e.toJson()},{success:function(e){t()},error:function(e){t(e)}})},_sendRequest:function(t,r,s){var o=this;this._connectionFactory.create(this._peerId,function(u,a){if(a){e.isUndefined(s)||s.error(a);return}var f=n.create(t,r);if(!e.isUndefined(s)){var l=setTimeout(function(){var n=o._nodeFactory.deregisterCallback(f.requestId);e.isNull(n)||s.error(new Error(t+" request to "+o._peerId+" timed out."))},o._config.requestTimeout);o._nodeFactory.registerCallback(f.requestId,e.once(function(e){clearTimeout(l);if(e.status!=="SUCCESS"){var t=new Error("Request to "+o._peerId+" failed: "+e.result.message);s.error(t);return}s.success(e.result)}))}i.debug("Sending request to",o._peerId,":",f.method);try{u.send(f)}finally{u.close()}})},onRequestReceived:function(e){var t=this;i.debug("Received request from",this._peerId,":",e.method),this._requestHandler.handle(e,function(e){t._connectionFactory.create(t._peerId,function(n,r){if(r){console.log(r);return}i.debug("Sending response to",t._peerId,":",e.method);try{n.send(e)}finally{n.close()}})})},onResponseReceived:function(t){i.debug("Received response from",this._peerId,":",t.method,"(",t.status,")");var n=this._nodeFactory.deregisterCallback(t.requestId);e.isNull(n)||n(t)},disconnect:function(){this._connectionFactory.removeConnection(this._peerId)},getPeerId:function(){return this._peerId},toNodeInfo:function(){return{nodeId:this.nodeId.toHexString(),peerId:this._peerId}},equals:function(t){return e.isNull(t)?!1:this.nodeId.equals(t.nodeId)},toString:function(){return this.nodeId.toHexString()+" ("+this._peerId+")"}},s}),n("peerjs",[],function(){return Peer}),n("PeerAgent",["underscore","peerjs","Utils"],function(e,t,n){var r=function(r,i){var s=this;e.isObject(r.peer)||(r.peer={id:undefined,options:{}}),e.isObject(r.peer.options)||(r.peer.options={}),n.isZeroOrPositiveNumber(r.connectRateLimit)||(r.connectRateLimit=3e3),n.isZeroOrPositiveNumber(r.connectionOpenTimeout)||(r.connectionOpenTimeout=3e4),e.isString(r.peer.id)?this._peer=new t(r.peer.id,r.peer.options):this._peer=new t(r.peer.options),this._config=r,this._callbacks=i,this._waitingTimer=null,this.connect=e.throttle(this.connect,r.connectRateLimit);var o=e.once(i.onPeerSetup);this._peer.on("open",function(e){n.debug("Peer opend (peer ID:",e,")"),s._peer.on("connection",function(e){n.debug("Connection from",e.peer),i.onConnection(e.peer,e)}),s._peer.on("close",function(){n.debug("Peer closed."),i.onPeerClosed()}),o(e)}),this._peer.on("error",function(e){n.debug("Peer error:",e);var t=e.message.match(/Could not connect to peer (\w+)/);if(t){if(!s.isWaitingOpeningConnection())return;clearTimeout(s._waitingTimer),s._waitingTimer=null;var r=t[1];i.onConnectionOpened(r,null,e);return}console.log(e),o(null,e)})};return r.prototype={connect:function(e){var t=this,r=this._peer.connect(e);if(!r){var i=new Error("Failed to open connection to "+e+".");this._callbacks.onConnectionOpened(e,null,i);return}this._waitingTimer=setTimeout(function(){if(!t.isWaitingOpeningConnection())return;t._waitingTimer=null;var n=new Error("Opening connection to "+e+" timed out.");t._callbacks.onConnectionOpened(e,null,n)},this._config.connectionOpenTimeout),r.on("open",function(){n.debug("Connection to",r.peer,"opened.");if(!t.isWaitingOpeningConnection()){r.close();return}clearTimeout(t._waitingTimer),t._waitingTimer=null,t._callbacks.onConnectionOpened(e,r)})},isWaitingOpeningConnection:function(){return!e.isNull(this._waitingTimer)},destroy:function(){this._peer.destroy()},getPeerId:function(){return this._peer.id}},r}),n("Connection",["underscore","Request","Response"],function(e,t,n){var r=function(e,t){var n=this;this._conn=e,this._callbacks=t,this._conn.on("data",function(e){n._onDataReceived(e)}),this._conn.on("close",function(){t.closedByRemote(n)}),this._conn.on("error",function(e){console.log(e)})};return r.prototype={send:function(e,t){this._conn.send(e.toJson())},_onDataReceived:function(e){var r=this;if(n.isResponse(e)){var i;try{i=n.fromJson(e)}catch(s){return}this._callbacks.responseReceived(this,i)}else if(t.isRequest(e)){var o;try{o=t.fromJson(e)}catch(s){return}this._callbacks.requestReceived(this,o)}},close:function(){this._callbacks.closedByLocal(this)},destroy:function(){this._conn.close()},getPeerId:function(){return this._conn.peer},isAvailable:function(){return this._conn.open}},r}),n("ConnectionFactory",["underscore","PeerAgent","Connection","Utils"],function(e,t,n,r){var i=function(i,s,o){var u=this,a=function(e,t){e.close(),s.onRequestReceived(e.getPeerId(),t)},f=function(e,t){e.close(),s.onResponseReceived(e.getPeerId(),t)},l=function(e){u.removeConnection(e.getPeerId())},c=function(e){u._connectionPool.set(e.getPeerId(),e)};this._peerAgent=new t(i,{onPeerSetup:function(e,t){if(t){o(null,t);return}o(u)},onConnectionOpened:function(e,t,r){if(r){u._invokeNextCallback(e,null,r);return}var i=new n(t,{requestReceived:a,responseReceived:f,closedByRemote:l,closedByLocal:c});u._invokeNextCallback(e,i)},onConnection:function(t,r){u._connectionPool.has(t)&&u.removeConnection(t);var s,o=setTimeout(function(){s.close()},i.silentConnectionCloseTimeout),h=e.once(function(){clearTimeout(o)});s=new n(r,{requestReceived:function(e,t){h(),a(e,t)},responseReceived:function(e,t){h(),f(e,t)},closedByRemote:l,closedByLocal:c})},onPeerClosed:function(){e.each(u._connectionPool.keys(),function(e){u.removeConnection(e)})}}),r.isZeroOrPositiveNumber(i.connectionPoolSize)||(i.connectionPoolSize=10),r.isZeroOrPositiveNumber(i.connectionCloseDelay)||(i.connectionCloseDelay=5e3),r.isZeroOrPositiveNumber(i.silentConnectionCloseTimeout)||(i.silentConnectionCloseTimeout=3e4),this._connectionPool=new r.Cache(i.connectionPoolSize,function(t){e.delay(function(){t.destroy()},i.connectionCloseDelay)}),this._callbackQueue=new r.Queue};return i.create=function(e,t,n){var r=new i(e,t,n)},i.prototype={create:function(e,t){var n=this;if(!r.isNonemptyString(e)){t(null);return}this._callbackQueue.enqueue({peerId:e,callback:t}),this._createConnectionAndInvokeNextCallback()},_createConnectionAndInvokeNextCallback:function(){var t=this,n=this._callbackQueue.first();if(e.isNull(n))return;if(this._peerAgent.isWaitingOpeningConnection())return;if(this._connectionPool.has(n.peerId)){var r=this._connectionPool.get(n.peerId);if(r.isAvailable()){this._invokeNextCallback(r.getPeerId(),r);return}this.removeConnection(r.getPeerId())}this._peerAgent.connect(n.peerId)},_invokeNextCallback:function(t,n,r){var i=this;e.defer(function(){i._createConnectionAndInvokeNextCallback()});var s=this._callbackQueue.dequeue();if(e.isNull(s)){console.log("Unknown situation.");return}if(s.peerId!==t){s.callback(null,new Error("Unknown situation."));return}s.callback(n,r)},removeConnection:function(t){var n=this._connectionPool.get(t);if(e.isNull(n))return;n.destroy(),this._connectionPool.remove(t)},destroy:function(){this._peerAgent.destroy()},getPeerId:function(){return this._peerAgent.getPeerId()}},i}),n("RequestHandler",["underscore","ID","Response","Entry","Utils"],function(e,t,n,r,i){var s=function(e,t){this._localNode=e,this._nodeFactory=t};return s.prototype={handle:function(n,s){var o=this;switch(n.method){case"FIND_SUCCESSOR":if(!i.isNonemptyString(n.params.key)){this._sendFailureResponse("Invalid params.",n,s);return}var u=t.fromHexString(n.params.key);this._localNode.findSuccessor(u,function(e,t){if(t){console.log(t),o._sendFailureResponse(c.message,n,s);return}o._sendSuccessResponse({successorNodeInfo:e.toNodeInfo()},n,s)});break;case"NOTIFY_AND_COPY":var a=n.params.potentialPredecessorNodeInfo;this._nodeFactory.create(a,function(t,r){if(r){console.log(r),this._sendFailureResponse(c.message,n,s);return}o._localNode.notifyAndCopyEntries(t,function(t,r){if(e.isNull(t)||e.isNull(r)){o._sendFailureResponse("Unknown error.",n,s);return}o._sendSuccessResponse({referencesNodeInfo:e.invoke(t,"toNodeInfo"),entries:e.invoke(r,"toJson")},n,s)})});break;case"NOTIFY":var a=n.params.potentialPredecessorNodeInfo;this._nodeFactory.create(a,function(t,r){if(r){console.log(r),o._sendFailureResponse(c.message,n,s);return}o._localNode.notify(t,function(t){if(e.isNull(t)){o._sendFailureResponse("Unknown error.",n,s);return}o._sendSuccessResponse({referencesNodeInfo:e.invoke(t,"toNodeInfo")},n,s)})});break;case"PING":o._sendSuccessResponse({},n,s);break;case"INSERT_REPLICAS":if(!e.isArray(n.params.replicas))return;var f=e.chain(n.params.replicas).map(function(e){try{return r.fromJson(e)}catch(t){return null}}).reject(function(t){return e.isNull(t)}).value();o._localNode.insertReplicas(f);break;case"REMOVE_REPLICAS":var l;try{l=t.fromHexString(n.params.sendingNodeId)}catch(c){return}if(!e.isArray(n.params.replicas))return;var f=e.chain(n.params.replicas).map(function(e){try{return r.fromJson(e)}catch(t){return null}}).reject(function(t){return e.isNull(t)}).value();o._localNode.removeReplicas(l,f);break;case"INSERT_ENTRY":var h;try{h=r.fromJson(n.params.entry)}catch(c){o._sendFailureResponse(c.message,n,s);return}o._localNode.insertEntry(h,function(e){e?(console.log("Failed to insert entry:",e),o._sendFailureResponse("Unknown error.",n,s)):o._sendSuccessResponse({},n,s)});break;case"RETRIEVE_ENTRIES":var p;try{p=t.fromHexString(n.params.id)}catch(c){o._sendFailureResponse(c.message,n,s);return}o._localNode.retrieveEntries(p,function(t,r){r?(console.log("Failed to retrieve entries:",r),o._sendFailureResponse("Unknown error.",n,s)):o._sendSuccessResponse({entries:e.invoke(t,"toJson")},n,s)});break;case"REMOVE_ENTRY":var h;try{h=r.fromJson(n.params.entry)}catch(c){o._sendFailureResponse(c.message,n,s);return}o._localNode.removeEntry(h,function(e){e?(console.log("Failed to remove entry:",e),o._sendFailureResponse("Unknown error.",n,s)):o._sendSuccessResponse({},n,s)});break;case"SHUTDOWN":break;case"LEAVES_NETWORK":var d=n.params.predecessorNodeInfo;this._nodeFactory.create(d,function(e,t){if(t){console.log(t);return}o._localNode.leavesNetwork(e)});break;default:this._sendFailureResponse("Unknown request method type.",n,s)}},_sendSuccessResponse:function(e,t,r){var i=this,s;try{s=n.create("SUCCESS",e,t)}catch(o){this._sendFailureResponse(o.message,t,r);return}r(s)},_sendFailureResponse:function(e,t,r){var i;try{i=n.create("FAILED",{message:e},t)}catch(s){return}r(i)}},s}),n("NodeFactory",["underscore","Node","ConnectionFactory","RequestHandler","ID","Utils"],function(e,t,n,r,i,s){var o=function(t,n){var i=this;if(e.isNull(t))throw new Error("Invalid arguments.");this._localNode=t,this._config=n,this._connectionFactory=null,this._requestHandler=new r(t,this),this._callbacks={}};return o.create=function(t,r,i){e.isNull(t)&&i(null,null);var s=new o(t,r);n.create(r,s,function(e,t){if(t){i(null,null,t);return}s._connectionFactory=e,i(e.getPeerId(),s)})},o.prototype={create:function(e,n){var r=this;if(!t.isValidNodeInfo(e)){n(null,new Error("Invalid node info."));return}if(this._localNode.nodeId.equals(i.create(e.peerId))){n(this._localNode);return}var s=new t(e,this,this._connectionFactory,this._requestHandler,this._config);n(s)},createAll:function(t,n){var r=this;if(e.isEmpty(t)){n([]);return}this.create(e.first(t),function(i,s){r.createAll(e.rest(t),function(e){s?(console.log(s),n(e)):n([i].concat(e))})})},onRequestReceived:function(e,t){this.create({peerId:e},function(e,n){if(n){console.log(n);return}e.onRequestReceived(t)})},onResponseReceived:function(e,t){this.create({peerId:e},function(e,n){if(n){console.log(n);return}e.onResponseReceived(t)})},registerCallback:function(e,t){this._callbacks[e]=t},deregisterCallback:function(t){if(!e.has(this._callbacks,t))return null;var n=this._callbacks[t];return delete this._callbacks[t],n},destroy:function(){this._connectionFactory.destroy()}},o}),n("EntryList",["underscore","ID","Utils"],function(e,t,n){var r=function(){this._entries={}};return r.prototype={addAll:function(t){var n=this;if(e.isNull(t))throw new Error("Invalid argument.");e.each(t,function(e){n.add(e)})},add:function(t){if(e.isNull(t))throw new Error("Invalid argument.");e.has(this._entries,t.id.toHexString())?this._entries[t.id.toHexString()].put(t):this._entries[t.id.toHexString()]=new n.Set([t],function(e,t){return e.equals(t)}),n.debug("An entry added (key:",t.id.toHexString(),")")},remove:function(t){if(e.isNull(t))throw new Error("Invalid argument.");if(!e.has(this._entries,t.id.toHexString()))return;this._entries[t.id.toHexString()].remove(t),this._entries[t.id.toHexString()].size()===0&&delete this._entries[t.id.toHexString()],n.debug("An entry removed (key:",t.id.toHexString(),")")},getEntries:function(t){if(e.isNull(t))throw new Error("Invalid argument.");return e.isUndefined(t)?this._entries:e.has(this._entries,t.toHexString())?this._entries[t.toHexString()].items():[]},getEntriesInInterval:function(n,r){if(e.isNull(n)||e.isNull(r))throw new Error("Invalid argument.");var i=[];return e.each(this._entries,function(e,s){t.fromHexString(s).isInInterval(n,r)&&(i=i.concat(e.items()))}),i=i.concat(this.getEntries(r)),i},removeAll:function(t){var n=this;if(e.isNull(t))throw new Error("Invalid argument.");e.each(t,function(e){n.remove(e)})},getNumberOfStoredEntries:function(){return e.size(this._entries)},getStatus:function(){return e.chain(this._entries).map(function(t,n){return[n,e.map(t,function(e){return e.value})]}).object().value()},dump:function(){return e.chain(this._entries).map(function(t){return e.invoke(t.items(),"toJson")}).flatten().value()},toString:function(){var n=this;return"[Entries]\n"+e.chain(this._entries).keys().map(function(e){return t.fromHexString(e)}).sort(function(e,t){return e.compareTo(t)}).map(function(t){return"["+t.toHexString()+"]\n"+e.map(n.getEntries(t),function(e){return JSON.stringify(e.value)}).join("\n")+"\n"}).value().join("\n")+"\n"}},r}),n("FingerTable",["underscore"],function(e){var t=function(t,n){if(e.isNull(t)||e.isNull(n))throw new Error("Invalid arguments.");this._localId=t,this._references=n,this._remoteNodes=e(this._localId.getLength()).times(function(){return null})};return t.prototype={_setEntry:function(t,n){if(!e.isNumber(t)||e.isNull(n))throw new Error("Invalid arguments.");if(t<0||t>=e.size(this._remoteNodes))throw new Error("Invalid index.");this._remoteNodes[t]=n},_getEntry:function(t){if(!e.isNumber(t))throw new Error("Invalid argument.");if(t<0||t>=e.size(this._remoteNodes))throw new Error("Invalid index.");return this._remoteNodes[t]},_unsetEntry:function(t){if(!e.isNumber(t))throw new Error("Invalid argument.");if(t<0||t>=e.size(this._remoteNodes))throw new Error("Invalid index.");var n=this._getEntry(t);this._remoteNodes[t]=null,e.isNull(n)||this._references.disconnectIfUnreferenced(n)},addReference:function(t){if(e.isNull(t))throw new Error("Invalid argument.");for(var n=0;n<e.size(this._remoteNodes);n++){var r=this._localId.addPowerOfTwo(n);if(!r.isInInterval(this._localId,t.nodeId))break;if(e.isNull(this._getEntry(n)))this._setEntry(n,t);else if(t.nodeId.isInInterval(this._localId,this._getEntry(n).nodeId)){var i=this._getEntry(n);this._setEntry(n,t),this._references.disconnectIfUnreferenced(i)}}},getClosestPrecedingNode:function(t){if(e.isNull(t))throw new Error("Invalid argument.");for(var n=e.size(this._remoteNodes)-1;n>=0;n--)if(!e.isNull(this._getEntry(n))&&this._getEntry(n).nodeId.isInInterval(this._localId,t))return this._getEntry(n);return null},removeReference:function(t){var n=this;if(e.isNull(t))throw new Error("Invalid argument.");var r=null;for(var i=e.size(this._remoteNodes)-1;i>=0;i--){var s=this._getEntry(i);if(t.equals(s))break;e.isNull(s)||(r=s)}e.each(this._remoteNodes,function(i,s){t.equals(n._getEntry(s))&&(e.isNull(r)?n._unsetEntry(s):n._setEntry(s,r))}),e.chain(this._references.getSuccessors()).reject(function(e){return e.equals(t)}).each(function(e){n.addReference(e)})},getFirstFingerTableEntries:function(t){var n=[];for(var r=0;r<e.size(this._remoteNodes);r++){e.isNull(this._getEntry(r))||(e.isEmpty(n)||!e.last(n).equals(this._getEntry(r)))&&n.push(this._getEntry(r));if(e.size(n)>=t)break}return n},containsReference:function(t){if(e.isNull(t))throw new Error("Invalid argument.");return e.some(this._remoteNodes,function(e){return t.equals(e)})},getStatus:function(){var t=this;return e.map(this._remoteNodes,function(t){return e.isNull(t)?null:t.toNodeInfo()})},toString:function(){var t=this;return"[FingerTable]\n"+e.chain(this._remoteNodes).map(function(n,r){if(e.isNull(n))return"";if(r===0||r>0&&!n.equals(t._getEntry(r-1)))return"["+r+"] "+n.toString();if(r===e.size(t._remoteNodes)-1||!n.equals(t._getEntry(r+1)))return"["+r+"]";if(r>1&&n.equals(t._getEntry(r-1))&&!n.equals(t._getEntry(r-2))||r===1&&n.equals(t._getEntry(r-1)))return"...";if(r>1&&n.equals(t._getEntry(r-1))&&n.equals(t._getEntry(r-2)))return"";throw new Error("Unknown situation.")}).reject(function(e){return e===""}).value().join("\n")+"\n"}},t}),n("SuccessorList",["underscore","Utils"],function(e,t){var n=function(n,r,i,s){if(e.isNull(n)||e.isNull(r)||e.isNull(i))throw new Error("Invalid argument.");t.isPositiveNumber(s.numberOfEntriesInSuccessorList)||(s.numberOfEntriesInSuccessorList=3),this._localId=n,this._capacity=s.numberOfEntriesInSuccessorList,this._entries=r,this._references=i,this._successors=[]};return n.prototype={addSuccessor:function(n){if(e.isNull(n))throw new Error("Invalid argument.");if(this.containsReference(n))return;if(e.size(this._successors)>=this._capacity&&n.nodeId.isInInterval(e.last(this._successors).nodeId,this._localId))return;var r=!1;for(var i=0;i<e.size(this._successors);i++)if(n.nodeId.isInInterval(this._localId,this._successors[i].nodeId)){t.insert(this._successors,i,n),r=!0;break}r||(this._successors.push(n),r=!0);var s,o=this._references.getPredecessor();if(!e.isNull(o))s=o.nodeId;else{var u=this._references.getClosestPrecedingNode(this._localId);e.isNull(u)?s=this._localId:s=u.nodeId}var a=this._localId,f=this._entries.getEntriesInInterval(s,a);n.insertReplicas(f);if(e.size(this._successors)>this._capacity){var l=this._successors.pop();l.removeReplicas(this._localId,[]),this._references.disconnectIfUnreferenced(l)}},getDirectSuccessor:function(){return e.isEmpty(this._successors)?null:this._successors[0]},getClosestPrecedingNode:function(t){if(e.isNull(t))throw new Error("Invalid argument.");for(var n=e.size(this._successors)-1;n>=0;n--)if(this._successors[n].nodeId.isInInterval(this._localId,t))return this._successors[n];return null},getReferences:function(){return this._successors},removeReference:function(t){var n=this;if(e.isNull(t))throw new Error("Invalid argument.");this._successors=e.reject(this._successors,function(e){return e.equals(t)});var r=this._references.getFirstFingerTableEntries(this._capacity);r=e.reject(r,function(e){return e.equals(t)}),e.each(r,function(e){n.addSuccessor(e)})},getSize:function(){return e.size(this._successors)},getCapacity:function(){return this._capacity},containsReference:function(t){if(e.isNull(t))throw new Error("Invalid argument.");return!e.isUndefined(e.find(this._successors,function(e){return e.equals(t)}))},getStatus:function(){return e.invoke(this._successors,"toNodeInfo")},toString:function(){return"[Successors]\n"+e.map(this._successors,function(e,t){return"["+t+"] "+e.toString()}).join("\n")+"\n"}},n}),n("ReferenceList",["underscore","FingerTable","SuccessorList"],function(e,t,n){var r=function(r,i,s){if(e.isNull(r)||e.isNull(i))throw new Error("Invalid arguments.");this._localId=r,this._fingerTable=new t(r,this),this._successors=new n(r,i,this,s),this._predecessor=null,this._entries=i};return r.prototype={addReference:function(t){if(e.isNull(t))throw new Error("Invalid argument.");if(t.nodeId.equals(this._localId))return;this._fingerTable.addReference(t),this._successors.addSuccessor(t)},removeReference:function(t){if(e.isNull(t))throw new Error("Invalid argument.");this._fingerTable.removeReference(t),this._successors.removeReference(t),t.equals(this.getPredecessor())&&(this._predecessor=null),this.disconnectIfUnreferenced(t)},getSuccessor:function(){return this._successors.getDirectSuccessor()},getSuccessors:function(){return this._successors.getReferences()},getClosestPrecedingNode:function(t){if(e.isNull(t))throw new Error("Invalid argument.");var n=[],r=this._fingerTable.getClosestPrecedingNode(t);e.isNull(r)||n.push(r);var i=this._successors.getClosestPrecedingNode(t);e.isNull(i)||n.push(i),!e.isNull(this._predecessor)&&t.isInInterval(this._predecessor.nodeId,this._localId)&&n.push(this._predecessor),n.sort(function(e,t){return e.nodeId.compareTo(t.nodeId)});var s=e.chain(n).map(function(e){return e.nodeId}).sortedIndex(function(e){return e.equals(t)}).value(),o=(e.size(n)+(s-1))%e.size(n),u=n[o];if(e.isNull(u))throw new Error("Closest node must not be null.");return u},getPredecessor:function(){return this._predecessor},addReferenceAsPredecessor:function(t){if(e.isNull(t))throw new Error("Invalid argument.");if(t.nodeId.equals(this._localId))return;(e.isNull(this._predecessor)||t.nodeId.isInInterval(this._predecessor.nodeId,this._localId))&&this.setPredecessor(t),this.addReference(t)},setPredecessor:function(t){if(e.isNull(t))throw new Error("Invalid argument.");if(t.nodeId.equals(this._localId))return;if(t.equals(this._predecessor))return;var n=this._predecessor;this._predecessor=t;if(!e.isNull(n)){this.disconnectIfUnreferenced(n);var r=this._successors.getSize();if(this._successors.getCapacity()===r){var i=e.last(this._successors.getReferences());i.removeReplicas(this._predecessor.nodeId,[])}}else{var s=this._entries.getEntriesInInterval(this._predecessor.nodeId,this._localId),o=this._successors.getReferences();e.each(o,function(e){e.insertReplicas(s)})}},disconnectIfUnreferenced:function(t){if(e.isNull(t))throw new Error("Invalid argument.");this.containsReference(t)||t.disconnect()},getFirstFingerTableEntries:function(e){return this._fingerTable.getFirstFingerTableEntries(e)},containsReference:function(t){if(e.isNull(t))throw new Error("Invalid argurment.");return this._fingerTable.containsReference(t)||this._successors.containsReference(t)||t.equals(this._predecessor)},getStatuses:function(){return{successors:this._successors.getStatus(),fingerTable:this._fingerTable.getStatus(),predecessor:e.isNull(this.getPredecessor())?null:this.getPredecessor().toNodeInfo()}},toString:function(){return[this._successors.toString(),"[Predecessor]\n"+(e.isNull(this.getPredecessor())?"":this.getPredecessor().toString())+"\n",this._fingerTable.toString()].join("\n")+"\n"}},r}),n("StabilizeTask",["underscore","Utils"],function(e,t){var n=function(e,t,n){this._localNode=e,this._references=t,this._entries=n,this._timer=null};return n.create=function(e,r,i,s){t.isZeroOrPositiveNumber(s.stabilizeTaskInterval)||(s.stabilizeTaskInterval=3e4);var o=new n(e,r,i),u=setInterval(function(){o.run()},s.stabilizeTaskInterval);return o._timer=u,o},n.prototype={run:function(){var n=this,r=this._references.getSuccessors();if(e.isEmpty(r))return;var i=e.first(r);i.notify(this._localNode,function(s,o){if(o){console.log(o),n._references.removeReference(i);return}var u=function(t){e.chain(r).reject(function(r){return r.equals(i)||!e.isNull(n._references.getPredecessor())&&r.equals(n._references.getPredecessor())||e.some(t,function(e){return e.equals(r)})}).each(function(e){n._references.removeReference(e)}),e.each(t,function(e){n._references.addReference(e)});var s=n._references.getSuccessor();s.equals(i)||s.ping(function(e,t){t&&(console.log(t),n._references.removeReference(s))})};e.size(s)>0&&!e.isNull(s[0])&&(n._localNode.equals(s[0])||i.notifyAndCopyEntries(n._localNode,function(r,i,s){if(s){console.log(s);return}n._entries.addAll(i),u(r),t.debug("[StabilizeTask] successors:",e.map(n._references.getSuccessors(),function(e){return e.getPeerId()}).toString())})),u(s),t.debug("[StabilizeTask] successors:",e.map(n._references.getSuccessors(),function(e){return e.getPeerId()}).toString())})},shutdown:function(){e.isNull(this._timer)||clearInterval(this._timer)}},n}),n("FixFingerTask",["underscore","Utils"],function(e,t){var n=function(e,t){this._localNode=e,this._references=t,this._timer=null};return n.create=function(e,r,i){t.isZeroOrPositiveNumber(i.fixFingerTaskInterval)||(i.fixFingerTaskInterval=3e4);var s=new n(e,r),o=setInterval(function(){s.run()},i.fixFingerTaskInterval);return s._timer=o,s},n.prototype={run:function(){var n=this,r=e.random(this._localNode.nodeId.getLength()-1),i=this._localNode.nodeId.addPowerOfTwo(r);this._localNode.findSuccessor(i,function(i,s){if(s){console.log(s);return}!e.isNull(i)&&!n._references.containsReference(i)&&n._references.addReference(i),t.debug("[FixFingerTask] finger:",r,", successor:",i.getPeerId())})},shutdown:function(){e.isNull(this._timer)||clearInterval(this._timer)}},n}),n("CheckPredecessorTask",["underscore","Utils"],function(e,t){var n=function(e){this._references=e,this._timer=null};return n.create=function(e,r){t.isZeroOrPositiveNumber(r.checkPredecessorTaskInterval)||(r.checkPredecessorTaskInterval=3e4);var i=new n(e),s=setInterval(function(){i.run()},r.checkPredecessorTaskInterval);return i._timer=s,i},n.prototype={run:function(){var n=this,r=this._references.getPredecessor();if(e.isNull(r))return;r.ping(function(e,i){if(i){console.log(i),n._references.removeReference(r);return}r=n._references.getPredecessor(),t.debug("[CheckPredecessorTask] predecessor:",r?r.getPeerId():null)})},shutdown:function(){e.isNull(this._timer)||clearInterval(this._timer)}},n}),n("LocalNode",["underscore","NodeFactory","EntryList","Entry","ReferenceList","ID","StabilizeTask","FixFingerTask","CheckPredecessorTask","Utils"],function(e,t,n,r,i,s,o,u,a,f){var l=function(e,t){this._chord=e,this._config=t,this.nodeId=null,this._peerId=null,this._nodeFactory=null,this._tasks={},this._entries=null,this._references=null};return l.create=function(e,n,r){var i=new l(e,n);t.create(i,n,function(e,t,n){if(n){r(null,n);return}i.setup(e,t),r(i)})},l.prototype={setup:function(e,t){this._peerId=e,this.nodeId=s.create(e),this._nodeFactory=t,this._entries=new n,this._references=new i(this.nodeId,this._entries,this._config)},_createTasks:function(){this._tasks={stabilizeTask:o.create(this,this._references,this._entries,this._config),fixFingerTask:u.create(this,this._references,this._config),checkPredecessorTask:a.create(this._references,this._config)},f.debug("Created tasks.")},_shutdownTasks:function(){e.invoke(this._tasks,"shutdown"),f.debug("Shutdown tasks.")},create:function(e){this._createTasks(),f.debug("Created network (peer ID:",this._peerId,")."),e(this._peerId)},join:function(t,n){var r=this;f.debug("Trying to join network."),this._nodeFactory.create({peerId:t},function(t,i){if(i){n(null,i);return}r._references.addReference(t),t.findSuccessor(r.nodeId,function(i,s){if(s){f.debug("[join] Failed to find successor:",s),r._references.removeReference(t),n(null,s);return}f.debug("[join] Found successor:",i.getPeerId()),r._references.addReference(i);var o=function(t,n,s){f.debug("[join] Trying to notify and copy entries (remote peer ID:",t.getPeerId(),", attempts:",n,").");if(n===0){s(null,null,new Error("Reached maximum count of attempts."));return}t.notifyAndCopyEntries(r,function(u,a,l){if(l){f.debug("[join] Failed to notify and copy entries (remote peer ID:",t.getPeerId(),")."),s(null,null,l);return}if(e.size(u)===1){f.debug("[join]",i.getPeerId(),"is successor and also predecessor."),r._references.addReferenceAsPredecessor(i),s(u,a);return}if(u[0].equals(r)){f.debug("[join] Left predecessor as null."),s(u,a);return}if(r.nodeId.isInInterval(u[0].nodeId,i.nodeId)){f.debug("[join]",u[0].getPeerId(),"is predecessor."),r._references.addReferenceAsPredecessor(u[0]),s(u,a);return}f.debug("[join] Failed to find predecessor. Retry to notify and copy entries."),r._references.addReference(u[0]),o(u[0],n-1,s)})};o(i,3,function(t,i,s){if(s){console.log("Failed to notify and copy entries:",s),r._createTasks(),n(r._peerId);return}e.each(t,function(t){!e.isNull(t)&&!t.equals(r)&&!r._references.containsReference(t)&&r._references.addReference(t)}),r._entries.addAll(i),e.defer(function(){r._chord.onentriesinserted(e.invoke(i,"toJson"))}),r._createTasks(),f.debug("Joining network succeeded."),n(r._peerId)})})})},leave:function(t){var n=this;this._shutdownTasks();var r=this._references.getSuccessor();!e.isNull(r)&&!e.isNull(this._references.getPredecessor())&&r.leavesNetwork(this._references.getPredecessor()),this._nodeFactory.destroy(),f.debug("Left network."),t()},insert:function(e,t,n){var i=s.create(e),o;try{o=new r(i,t)}catch(u){n(u);return}this.findSuccessor(i,function(e,t){if(t){n(t);return}e.insertEntry(o,n)})},retrieve:function(t,n){var r=s.create(t);this.findSuccessor(r,function(t,i){if(i){n(null,i);return}t.retrieveEntries(r,function(t,r){if(r){n(null,r);return}n(e.map(t,function(e){return e.value}))})})},remove:function(e,t,n){var i=s.create(e),o;try{o=new r(i,t)}catch(u){n(u);return}this.findSuccessor(i,function(e,t){if(t){n(t);return}e.removeEntry(o,n)})},getEntries:function(){return this._entries.dump()},setEntries:function(t){this._entries.addAll(e.map(t,function(e){return r.fromJson(e)}))},findSuccessor:function(t,n){var r=this;e.isNull(t)&&n(null,new Error("Invalid argument."));var i=this._references.getSuccessor();if(e.isNull(i)){n(this);return}if(t.isInInterval(this.nodeId,i.nodeId)||t.equals(i.nodeId)){n(i);return}var s=this._references.getClosestPrecedingNode(t);s.findSuccessor(t,function(e,i){if(i){console.log(i),r._references.removeReference(s),r.findSuccessor(t,n);return}n(e)})},notifyAndCopyEntries:function(e,t){var n=this,r=this.notify(e,function(r){var i=n._entries.getEntriesInInterval(n.nodeId,e.nodeId);t(r,i)})},notify:function(t,n){var r=[];e.isNull(this._references.getPredecessor())?r.push(t):r.push(this._references.getPredecessor()),r=r.concat(this._references.getSuccessors()),this._references.addReferenceAsPredecessor(t),n(r)},leavesNetwork:function(e){this._references.removeReference(this._references.getPredecessor()),this._references.addReferenceAsPredecessor(e)},insertReplicas:function(t){var n=this;this._entries.addAll(t),e.defer(function(){n._chord.onentriesinserted(e.invoke(t,"toJson"))})},removeReplicas:function(t,n){var r=this;if(e.size(n)!==0){this._entries.removeAll(n),e.defer(function(){r._chord.onentriesremoved(e.invoke(n,"toJson"))});return}var i=this._entries.getEntriesInInterval(this.nodeId,t);this._entries.removeAll(i),e.defer(function(){r._chord.onentriesremoved(e.invoke(i,"toJson"))})},insertEntry:function(t,n){var r=this;if(!e.isNull(this._references.getPredecessor())&&!t.id.isInInterval(this._references.getPredecessor().nodeId,this.nodeId)){this._references.getPredecessor().insertEntry(t,n);return}this._entries.add(t),e.defer(function(){r._chord.onentriesinserted([t.toJson()])}),e.each(this._references.getSuccessors(),function(e){e.insertReplicas([t])}),n()},retrieveEntries:function(t,n){if(!e.isNull(this._references.getPredecessor())&&!t.isInInterval(this._references.getPredecessor().nodeId,this.nodeId)){this._references.getPredecessor().retrieveEntries(t,n);return}n(this._entries.getEntries(t))},removeEntry:function(t,n){var r=this;if(!e.isNull(this._references.getPredecessor())&&!t.id.isInInterval(this._references.getPredecessor().nodeId,this.nodeId)){this._references.getPredecessor().removeEntry(t,n);return}this._entries.remove(t),e.defer(function(){r._chord.onentriesremoved([t.toJson()])}),e.each(this._references.getSuccessors(),function(e){e.removeReplicas(r.nodeId,[t])}),n()},getStatuses:function(){var e=this._references.getStatuses();return e.entries=this._entries.getStatus(),e},getPeerId:function(){return this._peerId},toNodeInfo:function(){return{nodeId:this.nodeId.toHexString(),peerId:this._peerId}},equals:function(t){return e.isNull(t)?!1:this.nodeId.equals(t.nodeId)},toString:function(){return this.nodeId.toHexString()+" ("+this._peerId+")"},toDisplayString:function(){return[this._references.toString(),this._entries.toString()].join("\n")+"\n"}},l}),n("Chord",["underscore","LocalNode","Utils"],function(e,t,n){var r=function(t){if(!e.isObject(t))throw new Error("Invalid argument.");n.enableDebugLog(t.debug),this._config=t,this._localNode=null,this.onentriesinserted=function(e){},this.onentriesremoved=function(e){}};return r.prototype={create:function(e){var n=this;if(this._localNode)throw new Error("Local node is already created.");e||(e=function(){}),t.create(this,this._config,function(t,r){if(r){e(null,r);return}n._localNode=t,n._localNode.create(function(t,r){r&&(n.leave(),n._localNode=null),e(t,r)})})},join:function(e,r){var i=this;if(!n.isNonemptyString(e))throw new Error("Invalid argument.");if(this._localNode)throw new Error("Local node is already created.");r||(r=function(){}),t.create(this,this._config,function(t,n){if(n){r(null,n);return}i._localNode=t,i._localNode.join(e,function(e,t){t&&(i.leave(),i._localNode=null),r(e,t)})})},leave:function(){var e=this;if(!this._localNode)return;this._localNode.leave(function(){e._localNode=null})},insert:function(t,r,i){i||(i=function(){});if(!this._localNode){i(new Error("Create or join network at first."));return}if(!n.isNonemptyString(t)||e.isUndefined(r)){i(new Error("Invalid arguments."));return}this._localNode.insert(t,r,i)},retrieve:function(e,t){t||(t=function(){});if(!this._localNode){t(new Error("Create or join network at first."));return}if(!n.isNonemptyString(e)){t(new Error("Invalid argument."));return}this._localNode.retrieve(e,t)},remove:function(t,r,i){i||(i=function(){});if(!this._localNode){i(new Error("Create or join network at first."));return}if(!n.isNonemptyString(t)||e.isUndefined(r)){i(new Error("Invalid arguments."));return}this._localNode.remove(t,r,i)},getEntries:function(){if(!this._localNode)throw new Error("Create or join network at first.");return this._localNode.getEntries()},setEntries:function(e){if(!this._localNode)throw new Error("Create or join network at first.");return this._localNode.setEntries(e)},getStatuses:function(){if(!this._localNode)throw new Error("Create or join network at first.");return this._localNode.getStatuses()},getPeerId:function(){if(!this._localNode)throw new Error("Create or join network at first.");return this._localNode.getPeerId()},getNodeId:function(){if(!this._localNode)throw new Error("Create or join network at first.");return this._localNode.nodeId.toHexString()},toString:function(){return this._localNode?this._localNode.toDisplayString():""}},r}),t("Chord")});
+var requirejs, require, define;
+(function (undef) {
+    var main, req, makeMap, handlers,
+        defined = {},
+        waiting = {},
+        config = {},
+        defining = {},
+        hasOwn = Object.prototype.hasOwnProperty,
+        aps = [].slice,
+        jsSuffixRegExp = /\.js$/;
+
+    function hasProp(obj, prop) {
+        return hasOwn.call(obj, prop);
+    }
+
+    /**
+* Given a relative module name, like ./something, normalize it to
+* a real name that can be mapped to a path.
+* @param {String} name the relative name
+* @param {String} baseName a real name that the name arg is relative
+* to.
+* @returns {String} normalized name
+*/
+    function normalize(name, baseName) {
+        var nameParts, nameSegment, mapValue, foundMap, lastIndex,
+            foundI, foundStarMap, starI, i, j, part,
+            baseParts = baseName && baseName.split("/"),
+            map = config.map,
+            starMap = (map && map['*']) || {};
+
+        //Adjust any relative paths.
+        if (name && name.charAt(0) === ".") {
+            //If have a base name, try to normalize against it,
+            //otherwise, assume it is a top-level require that will
+            //be relative to baseUrl in the end.
+            if (baseName) {
+                //Convert baseName to array, and lop off the last part,
+                //so that . matches that "directory" and not name of the baseName's
+                //module. For instance, baseName of "one/two/three", maps to
+                //"one/two/three.js", but we want the directory, "one/two" for
+                //this normalization.
+                baseParts = baseParts.slice(0, baseParts.length - 1);
+                name = name.split('/');
+                lastIndex = name.length - 1;
+
+                // Node .js allowance:
+                if (config.nodeIdCompat && jsSuffixRegExp.test(name[lastIndex])) {
+                    name[lastIndex] = name[lastIndex].replace(jsSuffixRegExp, '');
+                }
+
+                name = baseParts.concat(name);
+
+                //start trimDots
+                for (i = 0; i < name.length; i += 1) {
+                    part = name[i];
+                    if (part === ".") {
+                        name.splice(i, 1);
+                        i -= 1;
+                    } else if (part === "..") {
+                        if (i === 1 && (name[2] === '..' || name[0] === '..')) {
+                            //End of the line. Keep at least one non-dot
+                            //path segment at the front so it can be mapped
+                            //correctly to disk. Otherwise, there is likely
+                            //no path mapping for a path starting with '..'.
+                            //This can still fail, but catches the most reasonable
+                            //uses of ..
+                            break;
+                        } else if (i > 0) {
+                            name.splice(i - 1, 2);
+                            i -= 2;
+                        }
+                    }
+                }
+                //end trimDots
+
+                name = name.join("/");
+            } else if (name.indexOf('./') === 0) {
+                // No baseName, so this is ID is resolved relative
+                // to baseUrl, pull off the leading dot.
+                name = name.substring(2);
+            }
+        }
+
+        //Apply map config if available.
+        if ((baseParts || starMap) && map) {
+            nameParts = name.split('/');
+
+            for (i = nameParts.length; i > 0; i -= 1) {
+                nameSegment = nameParts.slice(0, i).join("/");
+
+                if (baseParts) {
+                    //Find the longest baseName segment match in the config.
+                    //So, do joins on the biggest to smallest lengths of baseParts.
+                    for (j = baseParts.length; j > 0; j -= 1) {
+                        mapValue = map[baseParts.slice(0, j).join('/')];
+
+                        //baseName segment has config, find if it has one for
+                        //this name.
+                        if (mapValue) {
+                            mapValue = mapValue[nameSegment];
+                            if (mapValue) {
+                                //Match, update name to the new value.
+                                foundMap = mapValue;
+                                foundI = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (foundMap) {
+                    break;
+                }
+
+                //Check for a star map match, but just hold on to it,
+                //if there is a shorter segment match later in a matching
+                //config, then favor over this star map.
+                if (!foundStarMap && starMap && starMap[nameSegment]) {
+                    foundStarMap = starMap[nameSegment];
+                    starI = i;
+                }
+            }
+
+            if (!foundMap && foundStarMap) {
+                foundMap = foundStarMap;
+                foundI = starI;
+            }
+
+            if (foundMap) {
+                nameParts.splice(0, foundI, foundMap);
+                name = nameParts.join('/');
+            }
+        }
+
+        return name;
+    }
+
+    function makeRequire(relName, forceSync) {
+        return function () {
+            //A version of a require function that passes a moduleName
+            //value for items that may need to
+            //look up paths relative to the moduleName
+            return req.apply(undef, aps.call(arguments, 0).concat([relName, forceSync]));
+        };
+    }
+
+    function makeNormalize(relName) {
+        return function (name) {
+            return normalize(name, relName);
+        };
+    }
+
+    function makeLoad(depName) {
+        return function (value) {
+            defined[depName] = value;
+        };
+    }
+
+    function callDep(name) {
+        if (hasProp(waiting, name)) {
+            var args = waiting[name];
+            delete waiting[name];
+            defining[name] = true;
+            main.apply(undef, args);
+        }
+
+        if (!hasProp(defined, name) && !hasProp(defining, name)) {
+            throw new Error('No ' + name);
+        }
+        return defined[name];
+    }
+
+    //Turns a plugin!resource to [plugin, resource]
+    //with the plugin being undefined if the name
+    //did not have a plugin prefix.
+    function splitPrefix(name) {
+        var prefix,
+            index = name ? name.indexOf('!') : -1;
+        if (index > -1) {
+            prefix = name.substring(0, index);
+            name = name.substring(index + 1, name.length);
+        }
+        return [prefix, name];
+    }
+
+    /**
+* Makes a name map, normalizing the name, and using a plugin
+* for normalization if necessary. Grabs a ref to plugin
+* too, as an optimization.
+*/
+    makeMap = function (name, relName) {
+        var plugin,
+            parts = splitPrefix(name),
+            prefix = parts[0];
+
+        name = parts[1];
+
+        if (prefix) {
+            prefix = normalize(prefix, relName);
+            plugin = callDep(prefix);
+        }
+
+        //Normalize according
+        if (prefix) {
+            if (plugin && plugin.normalize) {
+                name = plugin.normalize(name, makeNormalize(relName));
+            } else {
+                name = normalize(name, relName);
+            }
+        } else {
+            name = normalize(name, relName);
+            parts = splitPrefix(name);
+            prefix = parts[0];
+            name = parts[1];
+            if (prefix) {
+                plugin = callDep(prefix);
+            }
+        }
+
+        //Using ridiculous property names for space reasons
+        return {
+            f: prefix ? prefix + '!' + name : name, //fullName
+            n: name,
+            pr: prefix,
+            p: plugin
+        };
+    };
+
+    function makeConfig(name) {
+        return function () {
+            return (config && config.config && config.config[name]) || {};
+        };
+    }
+
+    handlers = {
+        require: function (name) {
+            return makeRequire(name);
+        },
+        exports: function (name) {
+            var e = defined[name];
+            if (typeof e !== 'undefined') {
+                return e;
+            } else {
+                return (defined[name] = {});
+            }
+        },
+        module: function (name) {
+            return {
+                id: name,
+                uri: '',
+                exports: defined[name],
+                config: makeConfig(name)
+            };
+        }
+    };
+
+    main = function (name, deps, callback, relName) {
+        var cjsModule, depName, ret, map, i,
+            args = [],
+            callbackType = typeof callback,
+            usingExports;
+
+        //Use name if no relName
+        relName = relName || name;
+
+        //Call the callback to define the module, if necessary.
+        if (callbackType === 'undefined' || callbackType === 'function') {
+            //Pull out the defined dependencies and pass the ordered
+            //values to the callback.
+            //Default to [require, exports, module] if no deps
+            deps = !deps.length && callback.length ? ['require', 'exports', 'module'] : deps;
+            for (i = 0; i < deps.length; i += 1) {
+                map = makeMap(deps[i], relName);
+                depName = map.f;
+
+                //Fast path CommonJS standard dependencies.
+                if (depName === "require") {
+                    args[i] = handlers.require(name);
+                } else if (depName === "exports") {
+                    //CommonJS module spec 1.1
+                    args[i] = handlers.exports(name);
+                    usingExports = true;
+                } else if (depName === "module") {
+                    //CommonJS module spec 1.1
+                    cjsModule = args[i] = handlers.module(name);
+                } else if (hasProp(defined, depName) ||
+                           hasProp(waiting, depName) ||
+                           hasProp(defining, depName)) {
+                    args[i] = callDep(depName);
+                } else if (map.p) {
+                    map.p.load(map.n, makeRequire(relName, true), makeLoad(depName), {});
+                    args[i] = defined[depName];
+                } else {
+                    throw new Error(name + ' missing ' + depName);
+                }
+            }
+
+            ret = callback ? callback.apply(defined[name], args) : undefined;
+
+            if (name) {
+                //If setting exports via "module" is in play,
+                //favor that over return value and exports. After that,
+                //favor a non-undefined return value over exports use.
+                if (cjsModule && cjsModule.exports !== undef &&
+                        cjsModule.exports !== defined[name]) {
+                    defined[name] = cjsModule.exports;
+                } else if (ret !== undef || !usingExports) {
+                    //Use the return value from the function.
+                    defined[name] = ret;
+                }
+            }
+        } else if (name) {
+            //May just be an object definition for the module. Only
+            //worry about defining if have a module name.
+            defined[name] = callback;
+        }
+    };
+
+    requirejs = require = req = function (deps, callback, relName, forceSync, alt) {
+        if (typeof deps === "string") {
+            if (handlers[deps]) {
+                //callback in this case is really relName
+                return handlers[deps](callback);
+            }
+            //Just return the module wanted. In this scenario, the
+            //deps arg is the module name, and second arg (if passed)
+            //is just the relName.
+            //Normalize module name, if it contains . or ..
+            return callDep(makeMap(deps, callback).f);
+        } else if (!deps.splice) {
+            //deps is a config object, not an array.
+            config = deps;
+            if (config.deps) {
+                req(config.deps, config.callback);
+            }
+            if (!callback) {
+                return;
+            }
+
+            if (callback.splice) {
+                //callback is an array, which means it is a dependency list.
+                //Adjust args if there are dependencies
+                deps = callback;
+                callback = relName;
+                relName = null;
+            } else {
+                deps = undef;
+            }
+        }
+
+        //Support require(['a'])
+        callback = callback || function () {};
+
+        //If relName is a function, it is an errback handler,
+        //so remove it.
+        if (typeof relName === 'function') {
+            relName = forceSync;
+            forceSync = alt;
+        }
+
+        //Simulate async callback;
+        if (forceSync) {
+            main(undef, deps, callback, relName);
+        } else {
+            //Using a non-zero value because of concern for what old browsers
+            //do, and latest browsers "upgrade" to 4 if lower value is used:
+            //http://www.whatwg.org/specs/web-apps/current-work/multipage/timers.html#dom-windowtimers-settimeout:
+            //If want a value immediately, use require('id') instead -- something
+            //that works in almond on the global level, but not guaranteed and
+            //unlikely to work in other AMD implementations.
+            setTimeout(function () {
+                main(undef, deps, callback, relName);
+            }, 4);
+        }
+
+        return req;
+    };
+
+    /**
+* Just drops the config on the floor, but returns req in case
+* the config return value is used.
+*/
+    req.config = function (cfg) {
+        return req(cfg);
+    };
+
+    /**
+* Expose module registry for debugging and tooling
+*/
+    requirejs._defined = defined;
+
+    define = function (name, deps, callback) {
+
+        //This module may not have dependencies
+        if (!deps.splice) {
+            //deps is not an array, so probably means
+            //an object literal or factory function for
+            //the value. Adjust args.
+            callback = deps;
+            deps = [];
+        }
+
+        if (!hasProp(defined, name) && !hasProp(waiting, name)) {
+            waiting[name] = [name, deps, callback];
+        }
+    };
+
+    define.amd = {
+        jQuery: true
+    };
+}());
+
+define("lib/almond", function(){});
+
+define('underscore',[], function() {
+  return _;
+});
+
+define('cryptojs',[], function() {
+  return CryptoJS;
+});
+
+define('Utils',['underscore'], function(_) {
+  var Utils = {
+    isNonemptyString: function(value) {
+      return _.isString(value) && !_.isEmpty(value);
+    },
+
+    isValidNumber: function(number) {
+      return !_.isNaN(number) && _.isNumber(number);
+    },
+
+    isPositiveNumber: function(number) {
+      return Utils.isValidNumber(number) && number > 0;
+    },
+
+    isZeroOrPositiveNumber: function(number) {
+      return number === 0 || Utils.isPositiveNumber(number);
+    },
+
+    insert: function(list, index, item) {
+      list.splice(index, 0, item);
+    },
+
+    enableDebugLog: function(enabled) {
+      Utils.debug = function() {
+        if (enabled) {
+          var args = Array.prototype.slice.call(arguments);
+          var d = new Date()
+          var timeStr = [d.getHours(), d.getMinutes(), d.getSeconds()].join(':') + ':';
+          args.unshift(timeStr);
+          console.log.apply(console, args);
+        }
+      };
+    },
+
+    debug: function() {
+    }
+  };
+
+  var Set = function(items, comparator) {
+    var self = this;
+
+    this._items = [];
+    this._comparator = comparator;
+
+    _.each(items, function(item) {
+      self.put(item);
+    });
+  };
+
+  Set.prototype = {
+    put: function(item) {
+      if (this.size() === 0 || !this.has(item)) {
+        this._items.push(item);
+      }
+    },
+
+    remove: function(item) {
+      var self = this;
+      this._items = _.reject(this._items, function(_item) {
+        return self._comparator(_item, item);
+      });
+    },
+
+    size: function() {
+      return _.size(this._items);
+    },
+
+    has: function(item) {
+      var self = this;
+      return _.some(this._items, function(_item) {
+        return self._comparator(_item, item);
+      });
+    },
+
+    items: function() {
+      return this._items;
+    }
+  };
+
+  Utils.Set = Set;
+
+  var Queue = function() {
+    this._items = [];
+  };
+
+  Queue.prototype = {
+    enqueue: function(item) {
+      this._items.push(item);
+    },
+
+    dequeue: function() {
+      if (_.isEmpty(this._items)) {
+        return null;
+      }
+      return this._items.shift();
+    },
+
+    first: function() {
+      if (_.isEmpty(this._items)) {
+        return null;
+      }
+      return _.first(this._items);
+    },
+
+    last: function() {
+      if (_.isEmpty(this._items)) {
+        return null;
+      }
+      return _.last(this._items);
+    },
+
+    size: function() {
+      return _.size(this._items);
+    },
+  };
+
+  Utils.Queue = Queue;
+
+  var Cache = function(capacity, cacheOutCallback) {
+    this._cache = {};
+    this._useHistory = [];
+    this._capacity = capacity;
+    this._cacheOutCallback = cacheOutCallback;
+  };
+
+  Cache.prototype = {
+    get: function(key) {
+      if (!_.has(this._cache, key)) {
+        return null;
+      }
+      this._updateUseHistory(key);
+      return this._cache[key];
+    },
+
+    set: function(key, item) {
+      var self = this;
+
+      this._cache[key] = item;
+      this._updateUseHistory(key);
+      if (_.size(this._cache) > this._capacity) {
+        var keysToRemove = _.rest(this._useHistory, this._capacity);
+        this._useHistory = _.first(this._useHistory, this._capacity);
+        _.each(keysToRemove, function(key) {
+          var item = self._cache[key];
+          delete self._cache[key];
+          self._cacheOutCallback(item);
+        });
+      }
+    },
+
+    remove: function(key) {
+      if (!this.has(key)) {
+        return;
+      }
+      this._useHistory = _.reject(this._useHistory, function(k) {
+        return k === key;
+      });
+      delete this._cache[key];
+    },
+
+    has: function(key) {
+      return _.has(this._cache, key);
+    },
+
+    keys: function() {
+      return _.keys(this._cache);
+    },
+
+    _updateUseHistory: function(key) {
+      this._useHistory = _.reject(this._useHistory, function(k) {
+        return k === key;
+      });
+      this._useHistory.unshift(key);
+    }
+  };
+
+  Utils.Cache = Cache;
+
+  return Utils;
+});
+
+define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
+  var ID = function(bytes) {
+    _.each(bytes, function(b) {
+      if (_.isNaN(b) || !_.isNumber(b) || b < 0x00 || 0xff < b) {
+        throw new Error("Invalid argument.");
+      }
+    });
+    if (_.size(bytes) !== ID._BYTE_SIZE) {
+      throw new Error("Invalid argument.");
+    }
+
+    this._bytes = _.last(bytes, ID._BYTE_SIZE);
+  };
+
+  ID._BYTE_SIZE = 32;
+
+  ID.create = function(str) {
+    if (!Utils.isNonemptyString(str)) {
+      throw new Error("Invalid argument.");
+    }
+
+    return new ID(ID._createBytes(str));
+  };
+
+  ID._createBytes = function(str) {
+    var hash = CryptoJS.SHA256(str).toString(CryptoJS.enc.Hex);
+    return ID._createBytesfromHexString(hash);
+  };
+
+  ID._createBytesfromHexString = function(str) {
+    if (!Utils.isNonemptyString(str)) {
+      throw new Error("Invalid argument.");
+    }
+
+    return _(Math.floor(_.size(str) / 2)).times(function(i) {
+      return parseInt(str.substr(i * 2, 2), 16);
+    });
+  };
+
+  ID.fromHexString = function(str) {
+    return new ID(ID._createBytesfromHexString(str));
+  };
+
+  ID.prototype = {
+    isInInterval: function(fromId, toId) {
+      if (_.isNull(fromId) || _.isNull(toId)) {
+        throw new Error("Invalid arguments.");
+      }
+
+      if (fromId.equals(toId)) {
+        return !this.equals(fromId);
+      }
+
+      if (fromId.compareTo(toId) < 0) {
+        return (this.compareTo(fromId) > 0 && this.compareTo(toId) < 0);
+      }
+
+      var minId = new ID(_(_.size(this._bytes)).times(function() {
+        return 0x00;
+      }));
+      var maxId = new ID(_(_.size(this._bytes)).times(function() {
+        return 0xff;
+      }));
+      return ((!fromId.equals(maxId) && this.compareTo(fromId) > 0 && this.compareTo(maxId) <= 0) ||
+              (!minId.equals(toId) && this.compareTo(minId) >= 0 && this.compareTo(toId) < 0));
+    },
+
+    addPowerOfTwo: function(powerOfTwo) {
+      if (!_.isNumber(powerOfTwo)) {
+        throw new Error("Invalid argument.");
+      }
+      if (powerOfTwo < 0 || powerOfTwo >= this.getLength()) {
+        throw new Error("Power of two out of index.");
+      }
+
+      var copy = _.clone(this._bytes);
+      var indexOfBytes = _.size(this._bytes) - 1 - Math.floor(powerOfTwo / 8);
+      var valueToAdd = [1, 2, 4, 8, 16, 32, 64, 128][powerOfTwo % 8];
+      for (var i = indexOfBytes; i >= 0; i--) {
+        copy[i] += valueToAdd;
+        valueToAdd = copy[i] >> 8;
+        copy[i] &= 0xff;
+        if (valueToAdd === 0) {
+          break;
+        }
+      }
+
+      return new ID(copy);
+    },
+
+    compareTo: function(id) {
+      if (this.getLength() !== id.getLength()) {
+        throw new Error("Invalid argument.");
+      }
+
+      var bytes = _.zip(this._bytes, id._bytes);
+      for (var i = 0; i < bytes.length; i++) {
+        if (bytes[i][0] < bytes[i][1]) {
+          return -1;
+        } else if (bytes[i][0] > bytes[i][1]) {
+          return 1;
+        }
+      }
+      return 0;
+    },
+
+    equals: function(id) {
+      return this.compareTo(id) === 0;
+    },
+
+    getLength: function() {
+      return _.size(this._bytes) * 8;
+    },
+
+    toHexString: function() {
+      return _.map(this._bytes, function(b) {
+        var str = b.toString(16);
+        return b < 0x10 ? "0" + str : str;
+      }).join("");
+    }
+  };
+
+  return ID;
+});
+
+define('Response',['underscore', 'Utils'], function(_, Utils) {
+  var Response = function(status, method, result, requestId, timestamp) {
+    if (!Utils.isNonemptyString(status) ||
+        !Utils.isNonemptyString(method) ||
+        !_.isObject(result) || !Utils.isNonemptyString(requestId) ||
+        !_.isNumber(timestamp)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this.status = status;
+    this.method = method;
+    this.result = result;
+    this.requestId = requestId;
+    this.timestamp = timestamp;
+  };
+
+  Response.create = function(status, result, request) {
+    return new Response(status, request.method, result, request.requestId, _.now());
+  };
+
+  Response.isResponse = function(data) {
+    if (!_.isObject(data)) {
+      return false;
+    }
+    if (!Utils.isNonemptyString(data.status)) {
+      return false;
+    }
+    return true;
+  };
+
+  Response.fromJson = function(json) {
+    if (!_.isObject(json)) {
+      throw new Error("Invalid argument.");
+    }
+    return new Response(json.status, json.method, json.result, json.requestId, json.timestamp);
+  };
+
+  Response.prototype = {
+    toJson: function() {
+      return {
+        status: this.status,
+        method: this.method,
+        result: this.result,
+        requestId: this.requestId,
+        timestamp: this.timestamp
+      };
+    },
+  };
+
+  return Response;
+});
+
+define('Request',['underscore', 'cryptojs', 'Response', 'Utils'], function(_, CryptoJS, Response, Utils) {
+  var Request = function(method, params, requestId, timestamp) {
+    if (!Utils.isNonemptyString(method) || !_.isObject(params) ||
+        !Utils.isNonemptyString(requestId) || !_.isNumber(timestamp)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this.method = method;
+    this.params = params;
+    this.requestId = requestId;
+    this.timestamp = timestamp;
+  };
+
+  Request.create = function(method, params) {
+    return new Request(method, params, Request._createId(), _.now());
+  };
+
+  Request._createId = function() {
+    return CryptoJS.SHA256(Math.random().toString()).toString();
+  };
+
+  Request.isRequest = function(data) {
+    return !Response.isResponse(data);
+  };
+
+  Request.fromJson = function(json) {
+    if (!_.isObject(json)) {
+      throw new Error("Invalid argument.");
+    }
+    return new Request(json.method, json.params, json.requestId, json.timestamp);
+  };
+
+  Request.prototype = {
+    toJson: function() {
+      return {
+        method: this.method,
+        params: this.params,
+        requestId: this.requestId,
+        timestamp: this.timestamp
+      };
+    }
+  };
+
+  return Request;
+});
+
+define('Entry',['underscore', 'ID'], function(_, ID) {
+  var Entry = function(id, value) {
+    if (_.isNull(id) || _.isUndefined(value)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this.id = id;
+    this.value = value;
+  };
+
+  Entry.fromJson = function(json) {
+    if (!_.isObject(json)) {
+      throw new Error("invalid argument.");
+    }
+    return new Entry(ID.fromHexString(json.id), json.value);
+  };
+
+  Entry.prototype = {
+    equals: function(entry) {
+      if (!(entry instanceof Entry)) {
+        return false;
+      }
+
+      return this.id.equals(entry.id) && _.isEqual(this.value, entry.value);
+    },
+
+    toJson: function() {
+      return {
+        id: this.id.toHexString(),
+        value: this.value
+      };
+    }
+  };
+
+  return Entry;
+});
+
+define('Node',['underscore', 'ID', 'Request', 'Entry', 'Utils'], function(_, ID, Request, Entry, Utils) {
+  var Node = function(nodeInfo, nodeFactory, connectionFactory, requestHandler, config) {
+    if (!Node.isValidNodeInfo(nodeInfo)) {
+      throw new Error("Invalid arguments.");
+    }
+
+    if (!Utils.isZeroOrPositiveNumber(config.requestTimeout)) {
+      config.requestTimeout = 180000;
+    }
+
+    this._peerId = nodeInfo.peerId;
+    this.nodeId = ID.create(nodeInfo.peerId);
+    this._nodeFactory = nodeFactory;
+    this._connectionFactory = connectionFactory;
+    this._requestHandler = requestHandler;
+    this._config = config;
+  };
+
+  Node.isValidNodeInfo = function(nodeInfo) {
+    if (!_.isObject(nodeInfo)) {
+      return false;
+    }
+    if (!Utils.isNonemptyString(nodeInfo.peerId)) {
+      return false;
+    }
+    return true;
+  };
+
+  Node.prototype = {
+    findSuccessor: function(key, callback) {
+      var self = this;
+
+      if (!(key instanceof ID)) {
+        callback(null);
+        return;
+      }
+
+      this._sendRequest('FIND_SUCCESSOR', {
+        key: key.toHexString()
+      }, {
+        success: function(result) {
+          var nodeInfo = result.successorNodeInfo;
+          self._nodeFactory.create(nodeInfo, callback);
+        },
+
+        error: function(error) {
+          callback(null, error);
+        }
+      });
+    },
+
+    notifyAndCopyEntries: function(potentialPredecessor, callback) {
+      var self = this;
+
+      this._sendRequest('NOTIFY_AND_COPY', {
+        potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
+      }, {
+        success: function(result) {
+          if (!_.isArray(result.referencesNodeInfo) || !_.isArray(result.entries)) {
+            callback(null, null);
+            return;
+          }
+
+          self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
+            var entries = _.chain(result.entries)
+              .map(function(entry) {
+                try {
+                  return Entry.fromJson(entry);
+                } catch (e) {
+                  return null;
+                }
+              })
+              .reject(function(entry) { return _.isNull(entry); })
+              .value();
+
+            callback(references, entries);
+          });
+        },
+
+        error: function(error) {
+          callback(null, null, error);
+        }
+      });
+    },
+
+    notify: function(potentialPredecessor, callback) {
+      var self = this;
+
+      this._sendRequest('NOTIFY', {
+        potentialPredecessorNodeInfo: potentialPredecessor.toNodeInfo()
+      }, {
+        success: function(result) {
+          if (!_.isArray(result.referencesNodeInfo)) {
+            callback(null);
+            return;
+          }
+
+          self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
+            callback(references);
+          });
+        },
+
+        error: function(error) {
+          callback(null, error);
+        }
+      });
+    },
+
+    leavesNetwork: function(predecessor) {
+      var self = this;
+
+      if (_.isNull(predecessor)) {
+        throw new Error("Invalid argument.");
+      }
+
+      this._sendRequest('LEAVES_NETWORK', {
+        predecessorNodeInfo: predecessor.toNodeInfo()
+      });
+    },
+
+    ping: function(callback) {
+      this._sendRequest('PING', {}, {
+        success: function(result) {
+          callback();
+        },
+
+        error: function(error) {
+          callback(error);
+        }
+      });
+    },
+
+    insertReplicas: function(replicas) {
+      this._sendRequest('INSERT_REPLICAS', {replicas: _.invoke(replicas, 'toJson')});
+    },
+
+    removeReplicas: function(sendingNodeId, replicas) {
+      this._sendRequest('REMOVE_REPLICAS', {
+        sendingNodeId: sendingNodeId.toHexString(),
+        replicas: _.invoke(replicas, 'toJson')
+      });
+    },
+
+    insertEntry: function(entry, callback) {
+      this._sendRequest('INSERT_ENTRY', {
+        entry: entry.toJson()
+      }, {
+        success: function(result) {
+          callback();
+        },
+
+        error: function(error) {
+          callback(error);
+        }
+      });
+    },
+
+    retrieveEntries: function(id, callback) {
+      var self = this;
+
+      this._sendRequest('RETRIEVE_ENTRIES', {
+        id: id.toHexString()
+      }, {
+        success: function(result) {
+          if (!_.isArray(result.entries)) {
+            callback(null, new Error("Received invalid data from " + self._peerId));
+            return;
+          }
+
+          var entries = _.chain(result.entries)
+            .map(function(entry) {
+              try {
+                return Entry.fromJson(entry);
+              } catch (e) {
+                return null;
+              }
+            })
+            .reject(function(entry) { return _.isNull(entry); })
+            .value();
+          callback(entries);
+        },
+
+        error: function(error) {
+          callback(null, error);
+        }
+      });
+    },
+
+    removeEntry: function(entry, callback) {
+      this._sendRequest('REMOVE_ENTRY', {
+        entry: entry.toJson()
+      }, {
+        success: function(result) {
+          callback();
+        },
+
+        error: function(error) {
+          callback(error);
+        }
+      });
+    },
+
+    _sendRequest: function(method, params, callbacks) {
+      var self = this;
+
+      this._connectionFactory.create(this._peerId, function(connection, error) {
+        if (error) {
+          if (!_.isUndefined(callbacks)) {
+            callbacks.error(error);
+          }
+          return;
+        }
+
+        var request = Request.create(method, params);
+
+        if (!_.isUndefined(callbacks)) {
+          var timer = setTimeout(function() {
+            var callback = self._nodeFactory.deregisterCallback(request.requestId);
+            if (!_.isNull(callback)) {
+              callbacks.error(new Error(method + " request to " + self._peerId + " timed out."));
+            }
+          }, self._config.requestTimeout);
+
+          self._nodeFactory.registerCallback(request.requestId, _.once(function(response) {
+            clearTimeout(timer);
+
+            if (response.status !== 'SUCCESS') {
+              var error = new Error(
+                "Request to " + self._peerId + " failed: " + response.result.message);
+              callbacks.error(error);
+              return;
+            }
+
+            callbacks.success(response.result);
+          }));
+        }
+
+        Utils.debug("Sending request to", self._peerId, ":", request.method);
+
+        try {
+          connection.send(request);
+        } finally {
+          connection.close();
+        }
+      });
+    },
+
+    onRequestReceived: function(request) {
+      var self = this;
+
+      Utils.debug("Received request from", this._peerId, ":", request.method);
+
+      this._requestHandler.handle(request, function(response) {
+        self._connectionFactory.create(self._peerId, function(connection, error) {
+          if (error) {
+            console.log(error);
+            return;
+          }
+
+          Utils.debug("Sending response to", self._peerId, ":", response.method);
+
+          try {
+            connection.send(response);
+          } finally {
+            connection.close();
+          }
+        });
+      });
+    },
+
+    onResponseReceived: function(response) {
+      Utils.debug("Received response from", this._peerId, ":", response.method, "(", response.status, ")");
+
+      var callback = this._nodeFactory.deregisterCallback(response.requestId);
+      if (!_.isNull(callback)) {
+        callback(response);
+      }
+    },
+
+    disconnect: function() {
+      this._connectionFactory.removeConnection(this._peerId);
+    },
+
+    getPeerId: function() {
+      return this._peerId;
+    },
+
+    toNodeInfo: function() {
+      return {
+        nodeId: this.nodeId.toHexString(),
+        peerId: this._peerId
+      };
+    },
+
+    equals: function(node) {
+      if (_.isNull(node)) {
+        return false;
+      }
+      return this.nodeId.equals(node.nodeId);
+    },
+
+    toString: function() {
+      return this.nodeId.toHexString() + " (" + this._peerId + ")";
+    }
+  };
+
+  return Node;
+});
+
+define('peerjs',[], function() {
+  return Peer;
+});
+
+define('PeerAgent',['underscore', 'peerjs', 'Utils'], function(_, Peer, Utils) {
+  var PeerAgent = function(config, callbacks) {
+    var self = this;
+
+    if (!_.isObject(config.peer)) {
+      config.peer = {id: undefined, options: {}};
+    }
+    if (!_.isObject(config.peer.options)) {
+      config.peer.options = {};
+    }
+    if (!Utils.isZeroOrPositiveNumber(config.connectRateLimit)) {
+      config.connectRateLimit = 3000;
+    }
+    if (!Utils.isZeroOrPositiveNumber(config.connectionOpenTimeout)) {
+      config.connectionOpenTimeout = 30000;
+    }
+
+    if (!_.isString(config.peer.id)) {
+      this._peer = new Peer(config.peer.options);
+    } else {
+      this._peer = new Peer(config.peer.id, config.peer.options);
+    }
+    this._config = config;
+    this._callbacks = callbacks;
+    this._waitingTimer = null;
+    this.connect = _.throttle(this.connect, config.connectRateLimit);
+
+    var onPeerSetup = _.once(callbacks.onPeerSetup);
+
+    this._peer.on('open', function(id) {
+      Utils.debug("Peer opend (peer ID:", id, ")");
+
+      self._peer.on('connection', function(conn) {
+        Utils.debug("Connection from", conn.peer);
+
+        callbacks.onConnection(conn.peer, conn);
+      });
+
+      self._peer.on('close', function() {
+        Utils.debug("Peer closed.");
+
+        callbacks.onPeerClosed();
+      });
+
+      onPeerSetup(id);
+    });
+
+    this._peer.on('error', function(error) {
+      Utils.debug("Peer error:", error);
+
+      var match = error.message.match(/Could not connect to peer (\w+)/);
+      if (match) {
+        if (!self.isWaitingOpeningConnection()) {
+          return;
+        }
+
+        clearTimeout(self._waitingTimer);
+        self._waitingTimer = null;
+
+        var peerId = match[1];
+        callbacks.onConnectionOpened(peerId, null, error);
+        return;
+      }
+
+      console.log(error);
+      onPeerSetup(null, error);
+    });
+  };
+
+  PeerAgent.prototype = {
+    connect: function(peerId) {
+      var self = this;
+
+      var conn = this._peer.connect(peerId);
+      if (!conn) {
+        var error = new Error("Failed to open connection to " + peerId + ".");
+        this._callbacks.onConnectionOpened(peerId, null, error);
+        return;
+      }
+
+      this._waitingTimer = setTimeout(function() {
+        if (!self.isWaitingOpeningConnection()) {
+          return;
+        }
+
+        self._waitingTimer = null;
+
+        var error = new Error("Opening connection to " + peerId + " timed out.");
+        self._callbacks.onConnectionOpened(peerId, null, error);
+      }, this._config.connectionOpenTimeout);
+
+      conn.on('open', function() {
+        Utils.debug("Connection to", conn.peer, "opened.");
+
+        if (!self.isWaitingOpeningConnection()) {
+          conn.close();
+          return;
+        }
+
+        clearTimeout(self._waitingTimer);
+        self._waitingTimer = null;
+
+        self._callbacks.onConnectionOpened(peerId, conn);
+      });
+    },
+
+    isWaitingOpeningConnection: function() {
+      return !_.isNull(this._waitingTimer);
+    },
+
+    destroy: function() {
+      this._peer.destroy();
+    },
+
+    getPeerId: function() {
+      return this._peer.id;
+    }
+  };
+
+  return PeerAgent;
+});
+
+define('Connection',['underscore', 'Request', 'Response'], function(_, Request, Response) {
+  var Connection = function(conn, callbacks) {
+    var self = this;
+
+    this._conn = conn;
+    this._callbacks = callbacks;
+
+    this._conn.on('data', function(data) {
+      self._onDataReceived(data);
+    });
+
+    this._conn.on('close', function() {
+      callbacks.closedByRemote(self);
+    });
+
+    this._conn.on('error', function(error) {
+      console.log(error);
+    });
+  };
+
+  Connection.prototype = {
+    send: function(requestOrResponse, callback) {
+      this._conn.send(requestOrResponse.toJson());
+    },
+
+    _onDataReceived: function(data) {
+      var self = this;
+
+      if (Response.isResponse(data)) {
+        var response;
+        try {
+          response = Response.fromJson(data);
+        } catch (e) {
+          return;
+        }
+        this._callbacks.responseReceived(this, response);
+      } else if (Request.isRequest(data)) {
+        var request;
+        try {
+          request = Request.fromJson(data);
+        } catch (e) {
+          return;
+        }
+        this._callbacks.requestReceived(this, request);
+      }
+    },
+
+    close: function() {
+      this._callbacks.closedByLocal(this);
+    },
+
+    destroy: function() {
+      this._conn.close();
+    },
+
+    getPeerId: function() {
+      return this._conn.peer;
+    },
+
+    isAvailable: function() {
+      return this._conn.open;
+    }
+  };
+
+  return Connection;
+});
+
+define('ConnectionFactory',['underscore', 'PeerAgent', 'Connection', 'Utils'], function(_, PeerAgent, Connection, Utils) {
+  var ConnectionFactory = function(config, nodeFactory, callback) {
+    var self = this;
+
+    var requestReceived = function(connection, request) {
+      connection.close();
+      nodeFactory.onRequestReceived(connection.getPeerId(), request);
+    };
+    var responseReceived = function(connection, response) {
+      connection.close();
+      nodeFactory.onResponseReceived(connection.getPeerId(), response);
+    };
+    var closedByRemote = function(connection) {
+      self.removeConnection(connection.getPeerId());
+    };
+    var closedByLocal = function(connection) {
+      self._connectionPool.set(connection.getPeerId(), connection);
+    };
+    this._peerAgent = new PeerAgent(config, {
+      onPeerSetup: function(peerId, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+        callback(self);
+      },
+
+      onConnectionOpened: function(peerId, conn, error) {
+        if (error) {
+          self._invokeNextCallback(peerId, null, error);
+          return;
+        }
+
+        var connection = new Connection(conn, {
+          requestReceived: requestReceived,
+          responseReceived: responseReceived,
+          closedByRemote: closedByRemote,
+          closedByLocal: closedByLocal
+        });
+
+        self._invokeNextCallback(peerId, connection);
+      },
+
+      onConnection: function(peerId, conn) {
+        if (self._connectionPool.has(peerId)) {
+          self.removeConnection(peerId);
+        }
+
+        var connection;
+        var timer = setTimeout(function() {
+          connection.close();
+        }, config.silentConnectionCloseTimeout);
+
+        var clearTimerOnce = _.once(function() { clearTimeout(timer); });
+
+        connection = new Connection(conn, {
+          requestReceived: function(connection, request) {
+            clearTimerOnce();
+            requestReceived(connection, request);
+          },
+          responseReceived: function(connection, response) {
+            clearTimerOnce();
+            responseReceived(connection, response);
+          },
+          closedByRemote: closedByRemote,
+          closedByLocal: closedByLocal
+        });
+      },
+
+      onPeerClosed: function() {
+        _.each(self._connectionPool.keys(), function(peerId) {
+          self.removeConnection(peerId);
+        });
+      }
+    });
+
+    if (!Utils.isZeroOrPositiveNumber(config.connectionPoolSize)) {
+      config.connectionPoolSize = 10;
+    }
+    if (!Utils.isZeroOrPositiveNumber(config.connectionCloseDelay)) {
+      config.connectionCloseDelay = 5000;
+    }
+    if (!Utils.isZeroOrPositiveNumber(config.silentConnectionCloseTimeout)) {
+      config.silentConnectionCloseTimeout = 30000;
+    }
+    this._connectionPool = new Utils.Cache(config.connectionPoolSize, function(connection) {
+      _.delay(function() { connection.destroy(); }, config.connectionCloseDelay);
+    });
+    this._callbackQueue = new Utils.Queue();
+  };
+
+  ConnectionFactory.create = function(config, nodeFactory, callback) {
+    var factory = new ConnectionFactory(config, nodeFactory, callback);
+  };
+
+  ConnectionFactory.prototype = {
+    create: function(remotePeerId, callback) {
+      var self = this;
+
+      if (!Utils.isNonemptyString(remotePeerId)) {
+        callback(null);
+        return;
+      }
+
+      this._callbackQueue.enqueue({
+        peerId: remotePeerId,
+        callback: callback
+      });
+
+      this._createConnectionAndInvokeNextCallback();
+    },
+
+    _createConnectionAndInvokeNextCallback: function() {
+      var self = this;
+
+      var callbackInfo = this._callbackQueue.first();
+      if (_.isNull(callbackInfo)) {
+        return;
+      }
+
+      if (this._peerAgent.isWaitingOpeningConnection()) {
+        return;
+      }
+
+      if (this._connectionPool.has(callbackInfo.peerId)) {
+        var connection = this._connectionPool.get(callbackInfo.peerId);
+        if (connection.isAvailable()) {
+          this._invokeNextCallback(connection.getPeerId(), connection);
+          return;
+        }
+
+        this.removeConnection(connection.getPeerId());
+      }
+
+      this._peerAgent.connect(callbackInfo.peerId);
+    },
+
+    _invokeNextCallback: function(peerId, connection, error) {
+      var self = this;
+
+      _.defer(function() {
+        self._createConnectionAndInvokeNextCallback();
+      });
+
+      var callbackInfo = this._callbackQueue.dequeue();
+      if (_.isNull(callbackInfo)) {
+        console.log("Unknown situation.");
+        return;
+      }
+      if (callbackInfo.peerId !== peerId) {
+        callbackInfo.callback(null, new Error("Unknown situation."));
+        return;
+      }
+      callbackInfo.callback(connection, error);
+    },
+
+    removeConnection: function(remotePeerId) {
+      var connection = this._connectionPool.get(remotePeerId);
+      if (_.isNull(connection)) {
+        return;
+      }
+      connection.destroy();
+      this._connectionPool.remove(remotePeerId);
+    },
+
+    destroy: function() {
+      this._peerAgent.destroy();
+    },
+
+    getPeerId: function() {
+      return this._peerAgent.getPeerId();
+    }
+  };
+
+  return ConnectionFactory;
+});
+
+define('RequestHandler',['underscore', 'ID', 'Response', 'Entry', 'Utils'], function(_, ID, Response, Entry, Utils) {
+  var RequestHandler = function(localNode, nodeFactory) {
+    this._localNode = localNode;
+    this._nodeFactory = nodeFactory;
+  }
+
+  RequestHandler.prototype = {
+    handle: function(request, callback) {
+      var self = this;
+
+      switch (request.method) {
+      case 'FIND_SUCCESSOR':
+        if (!Utils.isNonemptyString(request.params.key)) {
+          this._sendFailureResponse("Invalid params.", request, callback);
+          return;
+        }
+
+        var key = ID.fromHexString(request.params.key);
+        this._localNode.findSuccessor(key, function(successor, error) {
+          if (error) {
+            console.log(error);
+            self._sendFailureResponse(e.message, request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            successorNodeInfo: successor.toNodeInfo()
+          }, request, callback);
+        });
+        break;
+
+      case 'NOTIFY_AND_COPY':
+        var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+        this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+          if (error) {
+            console.log(error);
+            this._sendFailureResponse(e.message, request, callback);
+            return;
+          }
+
+          self._localNode.notifyAndCopyEntries(node, function(references, entries) {
+            if (_.isNull(references) || _.isNull(entries)) {
+              self._sendFailureResponse("Unknown error.", request, callback);
+              return;
+            }
+
+            self._sendSuccessResponse({
+              referencesNodeInfo: _.invoke(references, 'toNodeInfo'),
+              entries: _.invoke(entries, 'toJson')
+            }, request, callback);
+          });
+        });
+        break;
+
+      case 'NOTIFY':
+        var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+        this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+          if (error) {
+            console.log(error);
+            self._sendFailureResponse(e.message, request, callback);
+            return;
+          }
+
+          self._localNode.notify(node, function(references) {
+            if (_.isNull(references)) {
+              self._sendFailureResponse("Unknown error.", request, callback);
+              return;
+            }
+
+            self._sendSuccessResponse({
+              referencesNodeInfo: _.invoke(references, 'toNodeInfo')
+            }, request, callback);
+          });
+        });
+        break;
+
+      case 'PING':
+        self._sendSuccessResponse({}, request, callback);
+        break;
+
+      case 'INSERT_REPLICAS':
+        if (!_.isArray(request.params.replicas)) {
+          return;
+        }
+        var replicas = _.chain(request.params.replicas)
+          .map(function(replica) {
+            try {
+              return Entry.fromJson(replica);
+            } catch (e) {
+              return null;
+            }
+          })
+          .reject(function(replica) { return _.isNull(replica); })
+          .value();
+        self._localNode.insertReplicas(replicas);
+        break;
+
+      case 'REMOVE_REPLICAS':
+        var sendingNodeId;
+        try {
+            sendingNodeId = ID.fromHexString(request.params.sendingNodeId);
+        } catch (e) {
+          return;
+        }
+        if (!_.isArray(request.params.replicas)) {
+          return;
+        }
+        var replicas = _.chain(request.params.replicas)
+          .map(function(replica) {
+            try {
+              return Entry.fromJson(replica);
+            } catch (e) {
+              return null;
+            }
+          })
+          .reject(function(replica) { return _.isNull(replica); })
+          .value();
+        self._localNode.removeReplicas(sendingNodeId, replicas);
+        break;
+
+      case 'INSERT_ENTRY':
+        var entry;
+        try {
+          entry = Entry.fromJson(request.params.entry);
+        } catch (e) {
+          self._sendFailureResponse(e.message, request, callback);;
+          return;
+        }
+        self._localNode.insertEntry(entry, function(error) {
+          if (error) {
+            console.log("Failed to insert entry:", error);
+            self._sendFailureResponse("Unknown error.", request, callback);
+          } else {
+            self._sendSuccessResponse({}, request, callback);
+          }
+        });
+        break;
+
+      case 'RETRIEVE_ENTRIES':
+        var id;
+        try {
+          id = ID.fromHexString(request.params.id);
+        } catch (e) {
+          self._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+        self._localNode.retrieveEntries(id, function(entries, error) {
+          if (error) {
+            console.log("Failed to retrieve entries:", error);
+            self._sendFailureResponse("Unknown error.", request, callback);
+          } else {
+            self._sendSuccessResponse({
+              entries: _.invoke(entries, 'toJson')
+            }, request, callback);
+          }
+        });
+        break;
+
+      case 'REMOVE_ENTRY':
+        var entry;
+        try {
+          entry = Entry.fromJson(request.params.entry);
+        } catch (e) {
+          self._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+        self._localNode.removeEntry(entry, function(error) {
+          if (error) {
+            console.log("Failed to remove entry:", error);
+            self._sendFailureResponse("Unknown error.", request, callback);
+          } else {
+            self._sendSuccessResponse({}, request, callback);
+          }
+        });
+        break;
+
+      case 'SHUTDOWN':
+        break;
+
+      case 'LEAVES_NETWORK':
+        var predecessorNodeInfo = request.params.predecessorNodeInfo;
+        this._nodeFactory.create(predecessorNodeInfo, function(predecessor, error) {
+          if (error) {
+            console.log(error);
+            return;
+          }
+
+          self._localNode.leavesNetwork(predecessor);
+        });
+        break;
+
+      default:
+        this._sendFailureResponse("Unknown request method type.", request, callback);
+        break;
+      }
+    },
+
+    _sendSuccessResponse: function(result, request, callback) {
+      var self = this;
+
+      var response;
+      try {
+        response = Response.create('SUCCESS', result, request);
+      } catch (e){
+        this._sendFailureResponse(e.message, request, callback);
+        return;
+      }
+
+      callback(response);
+    },
+
+    _sendFailureResponse: function(message, request, callback) {
+      var response;
+      try {
+        response = Response.create('FAILED', {message: message}, request);
+      } catch (e) {
+        return;
+      }
+
+      callback(response);
+    }
+  };
+
+  return RequestHandler;
+});
+
+define('NodeFactory',[
+  'underscore', 'Node', 'ConnectionFactory', 'RequestHandler', 'ID', 'Utils'
+], function(_, Node, ConnectionFactory, RequestHandler, ID, Utils) {
+  var NodeFactory = function(localNode, config) {
+    var self = this;
+
+    if (_.isNull(localNode)) {
+      throw new Error("Invalid arguments.");
+    }
+
+    this._localNode = localNode;
+    this._config = config;
+    this._connectionFactory = null;
+    this._requestHandler = new RequestHandler(localNode, this);
+    this._callbacks = {};
+  };
+
+  NodeFactory.create = function(localNode, config, callback) {
+    if (_.isNull(localNode)) {
+      callback(null, null);
+    }
+
+    var nodeFactory = new NodeFactory(localNode, config);
+    ConnectionFactory.create(config, nodeFactory, function(connectionFactory, error) {
+      if (error) {
+        callback(null, null, error);
+        return;
+      }
+
+      nodeFactory._connectionFactory = connectionFactory;
+
+      callback(connectionFactory.getPeerId(), nodeFactory);
+    });
+  };
+
+  NodeFactory.prototype = {
+    create: function(nodeInfo, callback) {
+      var self = this;
+
+      if (!Node.isValidNodeInfo(nodeInfo)) {
+        callback(null, new Error("Invalid node info."));
+        return;
+      }
+
+      if (this._localNode.nodeId.equals(ID.create(nodeInfo.peerId))) {
+        callback(this._localNode);
+        return;
+      }
+
+      var node = new Node(nodeInfo, this, this._connectionFactory, this._requestHandler, this._config);
+
+      callback(node);
+    },
+
+    createAll: function(nodesInfo, callback) {
+      var self = this;
+
+      if (_.isEmpty(nodesInfo)) {
+        callback([]);
+        return;
+      }
+      this.create(_.first(nodesInfo), function(node, error) {
+        self.createAll(_.rest(nodesInfo), function(nodes) {
+          if (!error) {
+            callback([node].concat(nodes));
+          } else {
+            console.log(error);
+            callback(nodes);
+          }
+        });
+      });
+    },
+
+    onRequestReceived: function(peerId, request) {
+      this.create({peerId: peerId}, function(node, error) {
+        if (error) {
+          console.log(error);
+          return;
+        }
+        node.onRequestReceived(request);
+      });
+    },
+
+    onResponseReceived: function(peerId, response) {
+      this.create({peerId: peerId}, function(node, error) {
+        if (error) {
+          console.log(error);
+          return;
+        }
+        node.onResponseReceived(response);
+      });
+    },
+
+    registerCallback: function(key, callback) {
+      this._callbacks[key] = callback;
+    },
+
+    deregisterCallback: function(key) {
+      if (!_.has(this._callbacks, key)) {
+        return null;
+      }
+      var callback = this._callbacks[key];
+      delete this._callbacks[key];
+      return callback;
+    },
+
+    destroy: function() {
+      this._connectionFactory.destroy();
+    }
+  };
+
+  return NodeFactory;
+});
+
+define('EntryList',['underscore', 'ID', 'Utils'], function(_, ID, Utils) {
+  var EntryList = function() {
+    this._entries = {};
+  };
+
+  EntryList.prototype = {
+    addAll: function(entries) {
+      var self = this;
+
+      if (_.isNull(entries)) {
+        throw new Error("Invalid argument.");
+      }
+
+      _.each(entries, function(entry) {
+        self.add(entry);
+      });
+    },
+
+    add: function(entry) {
+      if (_.isNull(entry)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (_.has(this._entries, entry.id.toHexString())) {
+        this._entries[entry.id.toHexString()].put(entry);
+      } else {
+        this._entries[entry.id.toHexString()] = new Utils.Set([entry], function(a, b) {
+          return a.equals(b);
+        });
+      }
+
+      Utils.debug("An entry added (key:", entry.id.toHexString(), ")");
+    },
+
+    remove: function(entry) {
+      if (_.isNull(entry)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (!_.has(this._entries, entry.id.toHexString())) {
+        return;
+      }
+
+      this._entries[entry.id.toHexString()].remove(entry);
+      if (this._entries[entry.id.toHexString()].size() === 0) {
+        delete this._entries[entry.id.toHexString()];
+      }
+
+      Utils.debug("An entry removed (key:", entry.id.toHexString(), ")");
+    },
+
+    getEntries: function(id) {
+      if (_.isNull(id)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (_.isUndefined(id)) {
+        return this._entries;
+      }
+
+      if (_.has(this._entries, id.toHexString())) {
+        return this._entries[id.toHexString()].items();
+      } else {
+        return [];
+      }
+    },
+
+    getEntriesInInterval: function(fromId, toId) {
+      if (_.isNull(fromId) || _.isNull(toId)) {
+        throw new Error("Invalid argument.");
+      }
+
+      var result = [];
+      _.each(this._entries, function(entries, key) {
+        if (ID.fromHexString(key).isInInterval(fromId, toId)) {
+          result = result.concat(entries.items());
+        }
+      });
+
+      result = result.concat(this.getEntries(toId));
+
+      return result;
+    },
+
+    removeAll: function(entries) {
+      var self = this;
+
+      if (_.isNull(entries)) {
+        throw new Error("Invalid argument.");
+      }
+
+      _.each(entries, function(entry) {
+        self.remove(entry);
+      });
+    },
+
+    has: function(id) {
+      return _.has(this._entries, id.toHexString());
+    },
+
+    getNumberOfStoredEntries: function() {
+      return _.size(this._entries);
+    },
+
+    getStatus: function() {
+      return _.chain(this._entries)
+        .map(function(entries, key) {
+          return [
+            key,
+            _.map(entries, function(entry) {
+              return entry.value;
+            })
+          ];
+        })
+        .object()
+        .value();
+    },
+
+    dump: function() {
+      return _.chain(this._entries)
+        .map(function(entries) {
+          return _.invoke(entries.items(), 'toJson');
+        })
+        .flatten()
+        .value();
+    },
+
+    toString: function() {
+      var self = this;
+
+      return "[Entries]\n" + _.chain(this._entries)
+        .keys()
+        .map(function(key) { return ID.fromHexString(key); })
+        .sort(function(a, b) { return a.compareTo(b); })
+        .map(function(id) {
+          return "[" + id.toHexString() + "]\n" +
+            _.map(self.getEntries(id), function(entry) {
+              return JSON.stringify(entry.value);
+            }).join("\n") + "\n";
+        })
+        .value()
+        .join("\n") + "\n";
+    }
+  };
+
+  return EntryList;
+});
+
+define('FingerTable',['underscore'], function(_) {
+  var FingerTable = function(localId, references) {
+    if (_.isNull(localId) || _.isNull(references)) {
+      throw new Error("Invalid arguments.");
+    }
+
+    this._localId = localId;
+    this._references = references;
+    this._remoteNodes = _(this._localId.getLength()).times(function() { return null; });
+  };
+
+  FingerTable.prototype = {
+    _setEntry: function(index, node) {
+      if (!_.isNumber(index) || _.isNull(node)) {
+        throw new Error("Invalid arguments.");
+      }
+      if (index < 0 || index >= _.size(this._remoteNodes)) {
+        throw new Error("Invalid index.");
+      }
+
+      this._remoteNodes[index] = node;
+    },
+
+    _getEntry: function(index) {
+      if (!_.isNumber(index)) {
+        throw new Error("Invalid argument.");
+      }
+      if (index < 0 || index >= _.size(this._remoteNodes)) {
+        throw new Error("Invalid index.");
+      }
+
+      return this._remoteNodes[index];
+    },
+
+    _unsetEntry: function(index) {
+      if (!_.isNumber(index)) {
+        throw new Error("Invalid argument.");
+      }
+      if (index < 0 || index >= _.size(this._remoteNodes)) {
+        throw new Error("Invalid index.");
+      }
+
+      var overwrittenNode = this._getEntry(index);
+
+      this._remoteNodes[index] = null;
+
+      if (!_.isNull(overwrittenNode)) {
+        this._references.disconnectIfUnreferenced(overwrittenNode);
+      }
+    },
+
+    addReference: function(node) {
+      if (_.isNull(node)) {
+        throw new Error("Invalid argument.");
+      }
+
+      for (var i = 0; i < _.size(this._remoteNodes); i++) {
+        var startOfInterval = this._localId.addPowerOfTwo(i);
+        if (!startOfInterval.isInInterval(this._localId, node.nodeId)) {
+          break;
+        }
+
+        if (_.isNull(this._getEntry(i))) {
+          this._setEntry(i, node);
+        } else if (node.nodeId.isInInterval(this._localId, this._getEntry(i).nodeId)) {
+          var oldEntry = this._getEntry(i);
+          this._setEntry(i, node);
+          this._references.disconnectIfUnreferenced(oldEntry);
+        }
+      }
+    },
+
+    getClosestPrecedingNode: function(key) {
+      if (_.isNull(key)) {
+        throw new Error("Invalid argument.");
+      }
+
+      for (var i = _.size(this._remoteNodes) - 1; i >= 0; i--) {
+        if (!_.isNull(this._getEntry(i)) &&
+            this._getEntry(i).nodeId.isInInterval(this._localId, key)) {
+          return this._getEntry(i);
+        }
+      }
+      return null;
+    },
+
+    removeReference: function(node) {
+      var self = this;
+
+      if (_.isNull(node)) {
+        throw new Error("Invalid argument.");
+      }
+
+      var referenceForReplacement = null;
+      for (var i = _.size(this._remoteNodes) - 1; i >= 0; i--) {
+        var n = this._getEntry(i);
+        if (node.equals(n)) {
+          break;
+        }
+        if (!_.isNull(n)) {
+          referenceForReplacement = n;
+        }
+      }
+
+      _.each(this._remoteNodes, function(n, i) {
+        if (node.equals(self._getEntry(i))) {
+          if (_.isNull(referenceForReplacement)) {
+            self._unsetEntry(i);
+          } else {
+            self._setEntry(i, referenceForReplacement);
+          }
+        }
+      });
+
+      _.chain(this._references.getSuccessors())
+        .reject(function(s) { return s.equals(node); })
+        .each(function(s) { self.addReference(s); });
+    },
+
+    getFirstFingerTableEntries: function(count) {
+      var result = [];
+      for (var i = 0; i < _.size(this._remoteNodes); i++) {
+        if (!_.isNull(this._getEntry(i))) {
+          if (_.isEmpty(result) || !_.last(result).equals(this._getEntry(i))) {
+            result.push(this._getEntry(i));
+          }
+        }
+        if (_.size(result) >= count) {
+          break;
+        }
+      }
+      return result;
+    },
+
+    containsReference: function(reference) {
+      if (_.isNull(reference)) {
+        throw new Error("Invalid argument.");
+      }
+
+      return _.some(this._remoteNodes, function(node) {
+        return reference.equals(node);
+      });
+    },
+
+    getStatus: function() {
+      var self = this;
+      return _.map(this._remoteNodes, function(node) {
+        return _.isNull(node) ? null : node.toNodeInfo();
+      });
+    },
+
+    toString: function() {
+      var self = this;
+
+      return "[FingerTable]\n" + _.chain(this._remoteNodes)
+        .map(function(node, i) {
+          if (_.isNull(node)) {
+            return "";
+          }
+
+          if (i === 0 || (i > 0 && !node.equals(self._getEntry(i - 1)))) {
+            return "[" + i + "] " + node.toString();
+          }
+
+          if (i === _.size(self._remoteNodes) - 1 ||
+              !node.equals(self._getEntry(i + 1))) {
+            return "[" + i + "]";
+          }
+
+          if ((i > 1 &&
+               node.equals(self._getEntry(i - 1)) &&
+               !node.equals(self._getEntry(i - 2))) ||
+              (i === 1 && node.equals(self._getEntry(i - 1)))) {
+            return "..."
+          }
+
+          if (i > 1 &&
+              node.equals(self._getEntry(i - 1)) &&
+              node.equals(self._getEntry(i - 2))) {
+            return "";
+          }
+
+          throw new Error("Unknown situation.");
+        })
+        .reject(function(str) { return str === ""; })
+        .value()
+        .join("\n") + "\n";
+    }
+  };
+
+  return FingerTable;
+});
+
+define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
+  var SuccessorList = function(localId, entries, references, config) {
+    if (_.isNull(localId) || _.isNull(entries) || _.isNull(references)) {
+      throw new Error("Invalid argument.");
+    }
+
+    if (!Utils.isPositiveNumber(config.numberOfEntriesInSuccessorList)) {
+      config.numberOfEntriesInSuccessorList = 3;
+    }
+
+    this._localId = localId;
+    this._capacity = config.numberOfEntriesInSuccessorList;
+    this._entries = entries;
+    this._references = references;
+    this._successors = [];
+  };
+
+  SuccessorList.prototype = {
+    addSuccessor: function(node) {
+      if (_.isNull(node)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (this.containsReference(node)) {
+        return;
+      }
+
+      if (_.size(this._successors) >= this._capacity &&
+          node.nodeId.isInInterval(_.last(this._successors).nodeId, this._localId)) {
+        return;
+      }
+
+      var inserted = false;
+      for (var i = 0; i < _.size(this._successors); i++) {
+        if (node.nodeId.isInInterval(this._localId, this._successors[i].nodeId)) {
+          Utils.insert(this._successors, i, node);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) {
+        this._successors.push(node);
+        inserted = true;
+      }
+
+      var fromId;
+      var predecessor = this._references.getPredecessor();
+      if (!_.isNull(predecessor)) {
+        fromId = predecessor.nodeId;
+      } else {
+        var precedingNode = this._references.getClosestPrecedingNode(this._localId);
+        if (!_.isNull(precedingNode)) {
+          fromId = precedingNode.nodeId;
+        } else {
+          fromId = this._localId;
+        }
+      }
+      var toId = this._localId;
+      var entriesToReplicate = this._entries.getEntriesInInterval(fromId, toId);
+      node.insertReplicas(entriesToReplicate);
+
+      if (_.size(this._successors) > this._capacity) {
+        var nodeToDelete = this._successors.pop();
+
+        nodeToDelete.removeReplicas(this._localId, []);
+
+        this._references.disconnectIfUnreferenced(nodeToDelete);
+      }
+    },
+
+    getDirectSuccessor: function() {
+      if (_.isEmpty(this._successors)) {
+	return null;
+      }
+      return this._successors[0];
+    },
+
+    getClosestPrecedingNode: function(idToLookup) {
+      if (_.isNull(idToLookup)) {
+        throw new Error("Invalid argument.");
+      }
+
+      for (var i = _.size(this._successors) - 1; i >= 0; i--) {
+        if (this._successors[i].nodeId.isInInterval(this._localId, idToLookup)) {
+          return this._successors[i];
+        }
+      }
+      return null;
+    },
+
+    getReferences: function() {
+      return this._successors;
+    },
+
+    removeReference: function(node) {
+      var self = this;
+
+      if (_.isNull(node)) {
+        throw new Error("Invalid argument.");
+      }
+
+      this._successors = _.reject(this._successors, function(s) {
+        return s.equals(node);
+      });
+
+      var referencesOfFingerTable = this._references.getFirstFingerTableEntries(this._capacity);
+      referencesOfFingerTable = _.reject(referencesOfFingerTable, function(r) {
+        return r.equals(node);
+      });
+      _.each(referencesOfFingerTable, function(reference) {
+        self.addSuccessor(reference);
+      });
+    },
+
+    getSize: function() {
+      return _.size(this._successors);
+    },
+
+    getCapacity: function() {
+      return this._capacity;
+    },
+
+    containsReference: function(node) {
+      if (_.isNull(node)) {
+        throw new Error("Invalid argument.");
+      }
+
+      return !_.isUndefined(_.find(this._successors, function(n) {
+        return n.equals(node);
+      }));
+    },
+
+    getStatus: function() {
+      return _.invoke(this._successors, 'toNodeInfo');
+    },
+
+    toString: function() {
+      return "[Successors]\n" + _.map(this._successors, function(node, index) {
+        return "[" + index + "] " + node.toString();
+      }).join("\n") + "\n";
+    }
+  };
+
+  return SuccessorList;
+});
+
+define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(_, FingerTable, SuccessorList) {
+  var ReferenceList = function(localId, entries, config) {
+    if (_.isNull(localId) || _.isNull(entries)) {
+      throw new Error("Invalid arguments.");
+    }
+
+    this._localId = localId;
+    this._fingerTable = new FingerTable(localId, this);
+    this._successors = new SuccessorList(localId, entries, this, config);
+    this._predecessor = null;
+    this._entries = entries;
+  };
+
+  ReferenceList.prototype = {
+    addReference: function(reference) {
+      if (_.isNull(reference)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (reference.nodeId.equals(this._localId)) {
+        return;
+      }
+
+      this._fingerTable.addReference(reference);
+      this._successors.addSuccessor(reference);
+    },
+
+    removeReference: function(reference) {
+      if (_.isNull(reference)) {
+        throw new Error("Invalid argument.");
+      }
+
+      this._fingerTable.removeReference(reference);
+      this._successors.removeReference(reference);
+
+      if (reference.equals(this.getPredecessor())) {
+        this._predecessor = null;
+      }
+
+      this.disconnectIfUnreferenced(reference);
+    },
+
+    getSuccessor: function() {
+      return this._successors.getDirectSuccessor();
+    },
+
+    getSuccessors: function() {
+      return this._successors.getReferences();
+    },
+
+    getClosestPrecedingNode: function(key) {
+      if (_.isNull(key)) {
+        throw new Error("Invalid argument.");
+      }
+
+      var foundNodes = [];
+
+      var closestNodeFT = this._fingerTable.getClosestPrecedingNode(key);
+      if (!_.isNull(closestNodeFT)) {
+        foundNodes.push(closestNodeFT);
+      }
+      var closestNodeSL = this._successors.getClosestPrecedingNode(key);
+      if (!_.isNull(closestNodeSL)) {
+        foundNodes.push(closestNodeSL);
+      }
+      if (!_.isNull(this._predecessor) &&
+          key.isInInterval(this._predecessor.nodeId, this._localId)) {
+        foundNodes.push(this._predecessor);
+      }
+
+      foundNodes.sort(function(a, b) {
+          return a.nodeId.compareTo(b.nodeId);
+      });
+      var keyIndex = _.chain(foundNodes)
+        .map(function(node) { return node.nodeId; })
+        .sortedIndex(function(id) { return id.equals(key); })
+        .value();
+      var index = (_.size(foundNodes) + (keyIndex - 1)) % _.size(foundNodes);
+      var closestNode = foundNodes[index];
+      if (_.isNull(closestNode)) {
+        throw new Error("Closest node must not be null.");
+      }
+      return closestNode;
+    },
+
+    getPredecessor: function() {
+      return this._predecessor;
+    },
+
+    addReferenceAsPredecessor: function(potentialPredecessor) {
+      if (_.isNull(potentialPredecessor)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (potentialPredecessor.nodeId.equals(this._localId)) {
+        return;
+      }
+
+      if (_.isNull(this._predecessor) ||
+          potentialPredecessor.nodeId.isInInterval(this._predecessor.nodeId, this._localId)) {
+        this.setPredecessor(potentialPredecessor);
+      }
+
+      this.addReference(potentialPredecessor);
+    },
+
+    setPredecessor: function(potentialPredecessor) {
+      if (_.isNull(potentialPredecessor)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (potentialPredecessor.nodeId.equals(this._localId)) {
+        return;
+      }
+
+      if (potentialPredecessor.equals(this._predecessor)) {
+        return;
+      }
+
+      var formerPredecessor = this._predecessor;
+      this._predecessor = potentialPredecessor;
+      if (!_.isNull(formerPredecessor)) {
+        this.disconnectIfUnreferenced(formerPredecessor);
+
+        var size = this._successors.getSize();
+        if (this._successors.getCapacity() === size) {
+          var lastSuccessor = _.last(this._successors.getReferences());
+          lastSuccessor.removeReplicas(this._predecessor.nodeId, []);
+        }
+      } else {
+        var entriesToRep = this._entries.getEntriesInInterval(this._predecessor.nodeId, this._localId);
+        var successors = this._successors.getReferences();
+        _.each(successors, function(successor) {
+          successor.insertReplicas(entriesToRep);
+        });
+      }
+    },
+
+    disconnectIfUnreferenced: function(removedReference) {
+      if (_.isNull(removedReference)) {
+        throw new Error("Invalid argument.");
+      }
+
+      if (!this.containsReference(removedReference)) {
+        removedReference.disconnect();
+      }
+    },
+
+    getFirstFingerTableEntries: function(count) {
+      return this._fingerTable.getFirstFingerTableEntries(count);
+    },
+
+    containsReference: function(reference) {
+      if (_.isNull(reference)) {
+        throw new Error("Invalid argurment.");
+      }
+
+      return (this._fingerTable.containsReference(reference) ||
+              this._successors.containsReference(reference) ||
+              reference.equals(this._predecessor));
+    },
+
+    getStatuses: function() {
+      return {
+        successors: this._successors.getStatus(),
+        fingerTable: this._fingerTable.getStatus(),
+        predecessor: _.isNull(this.getPredecessor()) ? null : this.getPredecessor().toNodeInfo()
+      };
+    },
+
+    toString: function() {
+      return [
+        this._successors.toString(),
+        "[Predecessor]\n" + (_.isNull(this.getPredecessor()) ? "" : this.getPredecessor().toString()) + "\n",
+        this._fingerTable.toString()
+      ].join("\n") + "\n";
+    }
+  };
+
+  return ReferenceList;
+});
+
+define('StabilizeTask',['underscore', 'Utils'], function(_, Utils) {
+  var StabilizeTask = function(localNode, references, entries) {
+    this._localNode = localNode;
+    this._references = references;
+    this._entries = entries;
+    this._timer = null;
+  };
+
+  StabilizeTask.create = function(localNode, references, entries, config) {
+    if (!Utils.isZeroOrPositiveNumber(config.stabilizeTaskInterval)) {
+      config.stabilizeTaskInterval = 30000;
+    }
+
+    var task = new StabilizeTask(localNode, references, entries);
+    var timer = setInterval(function() {
+      task.run();
+    }, config.stabilizeTaskInterval);
+    task._timer = timer;
+    return task;
+  };
+
+  StabilizeTask.prototype = {
+    run: function() {
+      var self = this;
+
+      var successors = this._references.getSuccessors();
+      if (_.isEmpty(successors)) {
+        return;
+      }
+      var successor = _.first(successors);
+
+      successor.notify(this._localNode, function(references, error) {
+        if (error) {
+          console.log(error);
+          self._references.removeReference(successor);
+          return;
+        }
+
+        var RemoveUnreferencedSuccessorsAndAddReferences = function(references) {
+          _.chain(successors)
+            .reject(function(s) {
+              return (s.equals(successor) ||
+                      (!_.isNull(self._references.getPredecessor()) &&
+                       s.equals(self._references.getPredecessor())) ||
+                      _.some(references, function(r) { return r.equals(s); }));
+            })
+            .each(function(s) {
+              self._references.removeReference(s);
+            });
+
+          _.each(references, function(ref) {
+            self._references.addReference(ref);
+          });
+
+          var currentSuccessor = self._references.getSuccessor();
+          if (!currentSuccessor.equals(successor)) {
+            currentSuccessor.ping(function(error) {
+              if (error) {
+                console.log(error);
+                self._references.removeReference(currentSuccessor);
+              }
+            });
+          }
+        };
+
+        if (_.size(references) > 0 && !_.isNull(references[0])) {
+          if (!self._localNode.equals(references[0])) {
+            successor.notifyAndCopyEntries(self._localNode, function(references, entries, error) {
+              if (error) {
+                console.log(error);
+                return;
+              }
+
+              self._entries.addAll(entries);
+
+              RemoveUnreferencedSuccessorsAndAddReferences(references);
+
+              Utils.debug("[StabilizeTask] successors:", _.map(self._references.getSuccessors(), function(s) {
+                return s.getPeerId();
+              }).toString());
+            });
+          }
+        }
+
+        RemoveUnreferencedSuccessorsAndAddReferences(references);
+
+        Utils.debug("[StabilizeTask] successors:", _.map(self._references.getSuccessors(), function(s) {
+          return s.getPeerId();
+        }).toString());
+      });
+    },
+
+    shutdown: function() {
+      if (!_.isNull(this._timer)) {
+        clearInterval(this._timer);
+      }
+    }
+  };
+
+  return StabilizeTask;
+});
+
+define('FixFingerTask',['underscore', 'Utils'], function(_, Utils) {
+  var FixFingerTask = function(localNode, references) {
+    this._localNode = localNode;
+    this._references = references;
+    this._timer = null;
+  };
+
+  FixFingerTask.create = function(localNode, references, config) {
+    if (!Utils.isZeroOrPositiveNumber(config.fixFingerTaskInterval)) {
+      config.fixFingerTaskInterval = 30000;
+    }
+
+    var task = new FixFingerTask(localNode, references);
+    var timer = setInterval(function() {
+      task.run();
+    }, config.fixFingerTaskInterval);
+    task._timer = timer;
+    return task;
+  };
+
+  FixFingerTask.prototype = {
+    run: function() {
+      var self = this;
+
+      var nextFingerToFix = _.random(this._localNode.nodeId.getLength() - 1);
+      var lookForID = this._localNode.nodeId.addPowerOfTwo(nextFingerToFix);
+      this._localNode.findSuccessor(lookForID, function(successor, error) {
+        if (error) {
+          console.log(error);
+          return;
+        }
+
+        if (!_.isNull(successor) &&
+            !self._references.containsReference(successor)) {
+          self._references.addReference(successor);
+        }
+
+        Utils.debug("[FixFingerTask] finger:", nextFingerToFix, ", successor:", successor.getPeerId());
+      });
+    },
+
+    shutdown: function() {
+      if (!_.isNull(this._timer)) {
+        clearInterval(this._timer);
+      }
+    }
+  };
+
+  return FixFingerTask;
+});
+
+define('CheckPredecessorTask',['underscore', 'Utils'], function(_, Utils) {
+  var CheckPredecessorTask = function(references) {
+    this._references = references;
+    this._timer = null;
+  };
+
+  CheckPredecessorTask.create = function(references, config) {
+    if (!Utils.isZeroOrPositiveNumber(config.checkPredecessorTaskInterval)) {
+      config.checkPredecessorTaskInterval = 30000;
+    }
+
+    var task = new CheckPredecessorTask(references);
+    var timer = setInterval(function() {
+      task.run();
+    }, config.checkPredecessorTaskInterval);
+    task._timer = timer;
+    return task;
+  };
+
+  CheckPredecessorTask.prototype = {
+    run: function() {
+      var self = this;
+
+      var predecessor = this._references.getPredecessor();
+      if (_.isNull(predecessor)) {
+        return;
+      }
+
+      predecessor.ping(function(error) {
+        if (error) {
+          console.log(error);
+          self._references.removeReference(predecessor);
+          return;
+        }
+
+        predecessor = self._references.getPredecessor();
+        Utils.debug("[CheckPredecessorTask] predecessor:", predecessor ? predecessor.getPeerId() : null);
+      });
+    },
+
+    shutdown: function() {
+      if (!_.isNull(this._timer)) {
+        clearInterval(this._timer);
+      }
+    }
+  };
+
+  return CheckPredecessorTask;
+});
+
+define('LocalNode',[
+  'underscore', 'NodeFactory', 'EntryList', 'Entry', 'ReferenceList', 'ID', 'StabilizeTask',
+  'FixFingerTask', 'CheckPredecessorTask', 'Utils'
+], function(
+  _, NodeFactory, EntryList, Entry, ReferenceList, ID, StabilizeTask, FixFingerTask, CheckPredecessorTask, Utils
+) {
+  var LocalNode = function(chord, config) {
+    this._chord = chord;
+    this._config = config;
+    this.nodeId = null;
+    this._peerId = null;
+    this._nodeFactory = null;
+    this._tasks = {};
+    this._entries = null;
+    this._references = null;
+  };
+
+  LocalNode.create = function(chord, config, callback) {
+    var localNode = new LocalNode(chord, config);
+    NodeFactory.create(localNode, config, function(peerId, factory, error) {
+      if (error) {
+        callback(null, error);
+        return;
+      }
+
+      localNode.setup(peerId, factory);
+
+      callback(localNode);
+    });
+  };
+
+  LocalNode.prototype = {
+    setup: function(peerId, nodeFactory) {
+      this._peerId = peerId;
+      this.nodeId = ID.create(peerId);
+      this._nodeFactory = nodeFactory;
+      this._entries = new EntryList();
+      this._references = new ReferenceList(this.nodeId, this._entries, this._config);
+    },
+
+    _createTasks: function() {
+      this._tasks = {
+        stabilizeTask: StabilizeTask.create(this, this._references, this._entries, this._config),
+        fixFingerTask: FixFingerTask.create(this, this._references, this._config),
+        checkPredecessorTask: CheckPredecessorTask.create(this._references, this._config)
+      };
+
+      Utils.debug("Created tasks.");
+    },
+
+    _shutdownTasks: function() {
+      _.invoke(this._tasks, 'shutdown');
+
+      Utils.debug("Shutdown tasks.");
+    },
+
+    create: function(callback) {
+      this._createTasks();
+
+      Utils.debug("Created network (peer ID:", this._peerId, ").");
+
+      callback(this._peerId);
+    },
+
+    join: function(bootstrapId, callback) {
+      var self = this;
+
+      Utils.debug("Trying to join network.");
+
+      this._nodeFactory.create({peerId: bootstrapId}, function(bootstrapNode, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+
+        self._references.addReference(bootstrapNode);
+
+        bootstrapNode.findSuccessor(self.nodeId, function(successor, error) {
+          if (error) {
+            Utils.debug("[join] Failed to find successor:", error);
+            self._references.removeReference(bootstrapNode);
+            callback(null, error);
+            return;
+          }
+
+          Utils.debug("[join] Found successor:", successor.getPeerId());
+
+          self._references.addReference(successor);
+
+          var _notifyAndCopyEntries = function(node, attempts, callback) {
+            Utils.debug("[join] Trying to notify and copy entries "+ 
+                        "(remote peer ID:", node.getPeerId(), ", attempts:", attempts, ").");
+
+            if (attempts === 0) {
+              callback(null, null, new Error("Reached maximum count of attempts."));
+              return;
+            }
+
+            node.notifyAndCopyEntries(self, function(refs, entries, error) {
+              if (error) {
+                Utils.debug("[join] Failed to notify and copy entries (remote peer ID:", node.getPeerId(), ").");
+                callback(null, null, error);
+                return;
+              }
+
+              if (_.size(refs) === 1) {
+                Utils.debug("[join]", successor.getPeerId(), "is successor and also predecessor.");
+                self._references.addReferenceAsPredecessor(successor);
+                callback(refs, entries);
+                return;
+              }
+
+              if (refs[0].equals(self)) {
+                Utils.debug("[join] Left predecessor as null.");
+                callback(refs, entries);
+                return;
+              }
+
+              if (self.nodeId.isInInterval(refs[0].nodeId, successor.nodeId)) {
+                Utils.debug("[join]", refs[0].getPeerId(), "is predecessor.");
+                self._references.addReferenceAsPredecessor(refs[0]);
+                callback(refs, entries);
+                return;
+              }
+
+              Utils.debug("[join] Failed to find predecessor. Retry to notify and copy entries.");
+
+              self._references.addReference(refs[0]);
+              _notifyAndCopyEntries(refs[0], attempts - 1, callback);
+            });
+          };
+          _notifyAndCopyEntries(successor, 3, function(refs, entries, error) {
+            if (error) {
+              console.log("Failed to notify and copy entries:", error);
+              self._createTasks();
+              callback(self._peerId);
+              return;
+            }
+
+            _.each(refs, function(ref) {
+              if (!_.isNull(ref) && !ref.equals(self) &&
+                  !self._references.containsReference(ref)) {
+                self._references.addReference(ref);
+              }
+            });
+
+            self._entries.addAll(entries);
+
+            _.defer(function() {
+              self._chord.onentriesinserted(_.invoke(entries, 'toJson'));
+            });
+
+            self._createTasks();
+
+            Utils.debug("Joining network succeeded.");
+
+            callback(self._peerId);
+          });
+        });
+      });
+    },
+
+    leave: function(callback) {
+      var self = this;
+
+      this._shutdownTasks();
+
+      var successor = this._references.getSuccessor();
+      if (!_.isNull(successor) && !_.isNull(this._references.getPredecessor())) {
+        successor.leavesNetwork(this._references.getPredecessor());
+      }
+
+      this._nodeFactory.destroy();
+
+      Utils.debug("Left network.");
+
+      callback();
+    },
+
+    insert: function(key, value, callback) {
+      var id = ID.create(key);
+      var entry;
+      try {
+        entry = new Entry(id, value);
+      } catch (e) {
+        callback(e);
+        return;
+      }
+      this.findSuccessor(id, function(successor, error) {
+        if (error) {
+          callback(error);
+          return;
+        }
+
+        successor.insertEntry(entry, callback);
+      });
+    },
+
+    retrieve: function(key, callback) {
+      var id = ID.create(key);
+      this.findSuccessor(id, function(successor, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+
+        successor.retrieveEntries(id, function(entries, error) {
+          if (error) {
+            callback(null, error);
+            return;
+          }
+
+          callback(_.map(entries, function(entry) { return entry.value; }));
+        });
+      });
+    },
+
+    remove: function(key, value, callback) {
+      var id = ID.create(key);
+      var entry;
+      try {
+        entry = new Entry(id, value);
+      } catch (e) {
+        callback(e);
+        return;
+      }
+      this.findSuccessor(id, function(successor, error) {
+        if (error) {
+          callback(error);
+          return;
+        }
+
+        successor.removeEntry(entry, callback);
+      });
+    },
+
+    
+    getEntries: function() {
+      return this._entries.dump();
+    },
+
+    setEntries: function(entries) {
+      this._entries.addAll(_.map(entries, function(entry) {
+        return Entry.fromJson(entry);
+      }));
+    },
+
+    findSuccessor: function(key, callback) {
+      var self = this;
+
+      if (_.isNull(key)) {
+        callback(null, new Error("Invalid argument."));
+      }
+
+      var successor = this._references.getSuccessor();
+      if (_.isNull(successor)) {
+        callback(this);
+        return;
+      }
+
+      if (key.isInInterval(this.nodeId, successor.nodeId) ||
+          key.equals(successor.nodeId)) {
+        successor.ping(function(error) {
+          if (error) {
+            console.log(error);
+            self._references.removeReference(successor);
+            self.findSuccessor(key, callback);
+            return;
+          }
+
+          callback(successor);
+        });
+        return;
+      }
+
+      var closestPrecedingNode = this._references.getClosestPrecedingNode(key);
+      closestPrecedingNode.findSuccessor(key, function(successor, error) {
+        if (error) {
+          console.log(error);
+          self._references.removeReference(closestPrecedingNode);
+          self.findSuccessor(key, callback);
+          return;
+        }
+
+        callback(successor);
+      });
+    },
+
+    notifyAndCopyEntries: function(potentialPredecessor, callback) {
+      var self = this;
+
+      var references = this.notify(potentialPredecessor, function(references) {
+        var entries = self._entries.getEntriesInInterval(self.nodeId, potentialPredecessor.nodeId);
+
+        callback(references, entries);
+      });
+    },
+
+    notify: function(potentialPredecessor, callback) {
+      var references = [];
+      if (!_.isNull(this._references.getPredecessor())) {
+        references.push(this._references.getPredecessor());
+      } else {
+        references.push(potentialPredecessor);
+      }
+      references = references.concat(this._references.getSuccessors());
+
+      this._references.addReferenceAsPredecessor(potentialPredecessor);
+
+      callback(references);
+    },
+
+    leavesNetwork: function(predecessor) {
+      this._references.removeReference(this._references.getPredecessor());
+      this._references.addReferenceAsPredecessor(predecessor);
+    },
+
+    insertReplicas: function(replicas) {
+      var self = this;
+
+      this._entries.addAll(replicas);
+
+      _.defer(function() {
+        self._chord.onentriesinserted(_.invoke(replicas, 'toJson'));
+      });
+    },
+
+    removeReplicas: function(sendingNodeId, replicas) {
+      var self = this;
+
+      if (_.size(replicas) !== 0) {
+        this._entries.removeAll(replicas);
+
+        _.defer(function() {
+          self._chord.onentriesremoved(_.invoke(replicas, 'toJson'));
+        });
+
+        return;
+      }
+
+      var allReplicasToRemove = this._entries.getEntriesInInterval(this.nodeId, sendingNodeId);
+      this._entries.removeAll(allReplicasToRemove);
+
+      _.defer(function() {
+        self._chord.onentriesremoved(_.invoke(allReplicasToRemove, 'toJson'));
+      });
+    },
+
+    insertEntry: function(entry, callback) {
+      var self = this;
+
+      if (!_.isNull(this._references.getPredecessor()) &&
+          !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+        this._references.getPredecessor().insertEntry(entry, callback); 
+        return;
+      }
+
+      this._entries.add(entry);
+
+      _.defer(function() {
+        self._chord.onentriesinserted([entry.toJson()]);
+      });
+
+      _.each(this._references.getSuccessors(), function(successor) {
+        successor.insertReplicas([entry]);
+      });
+
+      callback();
+    },
+
+    retrieveEntries: function(id, callback) {
+      if (this._entries.has(id)) {
+        callback(this._entries.getEntries(id));
+        return;
+      }
+
+      if (!_.isNull(this._references.getPredecessor()) &&
+          !id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+        this._references.getPredecessor().retrieveEntries(id, callback);
+        return;
+      }
+
+      callback(this._entries.getEntries(id));
+    },
+
+    removeEntry: function(entry, callback) {
+      var self = this;
+
+      if (!_.isNull(this._references.getPredecessor()) &&
+          !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
+        this._references.getPredecessor().removeEntry(entry, callback);
+        return;
+      }
+
+      this._entries.remove(entry);
+
+      _.defer(function() {
+        self._chord.onentriesremoved([entry.toJson()]);
+      });
+
+      _.each(this._references.getSuccessors(), function(successor) {
+        successor.removeReplicas(self.nodeId, [entry]);
+      });
+
+      callback();
+    },
+
+    getStatuses: function() {
+      var ret = this._references.getStatuses();
+      ret['entries'] = this._entries.getStatus();
+      return ret;
+    },
+
+    getPeerId: function() {
+      return this._peerId;
+    },
+
+    toNodeInfo: function() {
+      return {
+        nodeId: this.nodeId.toHexString(),
+        peerId: this._peerId
+      };
+    },
+
+    equals: function(node) {
+      if (_.isNull(node)) {
+        return false;
+      }
+      return this.nodeId.equals(node.nodeId);
+    },
+
+    toString: function() {
+      return this.nodeId.toHexString() + " (" + this._peerId + ")";
+    },
+
+    toDisplayString: function() {
+      return [
+        this._references.toString(),
+        this._entries.toString()
+      ].join("\n") + "\n";
+    }
+  };
+
+  return LocalNode;
+});
+
+define('Chord',['underscore', 'LocalNode', 'Utils'], function(_, LocalNode, Utils) {
+  var Chord = function(config) {
+    if (!_.isObject(config)) {
+      throw new Error("Invalid argument.");
+    }
+    Utils.enableDebugLog(config.debug);
+
+    this._config = config;
+    this._localNode = null;
+    this.onentriesinserted = function(entries) { ; };
+    this.onentriesremoved = function(entries) { ; };
+  };
+
+  Chord.prototype = {
+    create: function(callback) {
+      var self = this;
+
+      if (this._localNode) {
+        throw new Error("Local node is already created.");
+      }
+      if (!callback) {
+        callback = function() {};
+      }
+
+      LocalNode.create(this, this._config, function(localNode, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+
+        self._localNode = localNode;
+        self._localNode.create(function(peerId, error) {
+          if (error) {
+            self.leave();
+            self._localNode = null;
+          }
+
+          callback(peerId, error);
+        });
+      });
+    },
+
+    join: function(bootstrapId, callback) {
+      var self = this;
+
+      if (!Utils.isNonemptyString(bootstrapId)) {
+        throw new Error("Invalid argument.");
+      }
+      if (this._localNode) {
+        throw new Error("Local node is already created.");
+      }
+      if (!callback) {
+        callback = function() {};
+      }
+
+      LocalNode.create(this, this._config, function(localNode, error) {
+        if (error) {
+          callback(null, error);
+          return;
+        }
+
+        self._localNode = localNode;
+        self._localNode.join(bootstrapId, function(peerId, error) {
+          if (error) {
+            self.leave();
+            self._localNode = null;
+          }
+
+          callback(peerId, error);
+        });
+      });
+    },
+
+    leave: function() {
+      var self = this;
+
+      if (!this._localNode) {
+        return;
+      }
+
+      this._localNode.leave(function() {
+        self._localNode = null;
+      });
+    },
+
+    insert: function(key, value, callback) {
+      if (!callback) {
+        callback = function() {};
+      }
+      if (!this._localNode) {
+        callback(new Error("Create or join network at first."));
+        return;
+      }
+      if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
+        callback(new Error("Invalid arguments."));
+        return;
+      }
+
+      this._localNode.insert(key, value, callback);
+    },
+
+    retrieve: function(key, callback) {
+      if (!callback) {
+        callback = function() {};
+      }
+      if (!this._localNode) {
+        callback(null, new Error("Create or join network at first."));
+        return;
+      }
+      if (!Utils.isNonemptyString(key)) {
+        callback(null, new Error("Invalid argument."));
+        return;
+      }
+
+      this._localNode.retrieve(key, callback);
+    },
+
+    remove: function(key, value, callback) {
+      if (!callback) {
+        callback = function() {};
+      }
+      if (!this._localNode) {
+        callback(new Error("Create or join network at first."));
+        return;
+      }
+      if (!Utils.isNonemptyString(key) || _.isUndefined(value)) {
+        callback(new Error("Invalid arguments."));
+        return;
+      }
+
+      this._localNode.remove(key, value, callback);
+    },
+
+    getEntries: function() {
+      if (!this._localNode) {
+        throw new Error("Create or join network at first.");
+      }
+      return this._localNode.getEntries();
+    },
+
+    setEntries: function(entries) {
+      if (!this._localNode) {
+        throw new Error("Create or join network at first.");
+      }
+      return this._localNode.setEntries(entries);
+    },
+
+    getStatuses: function() {
+      if (!this._localNode) {
+        throw new Error("Create or join network at first.");
+      }
+      return this._localNode.getStatuses();
+    },
+
+    getPeerId: function() {
+      if (!this._localNode) {
+        throw new Error("Create or join network at first.");
+      }
+      return this._localNode.getPeerId();
+    },
+
+    getNodeId: function() {
+      if (!this._localNode) {
+        throw new Error("Create or join network at first.");
+      }
+      return this._localNode.nodeId.toHexString();
+    },
+
+    toString: function() {
+      if (!this._localNode) {
+        return "";
+      }
+
+      return this._localNode.toDisplayString();
+    }
+  };
+
+  return Chord;
+});
+
+
+    //The modules for your project will be inlined above
+    //this snippet. Ask almond to synchronously require the
+    //module value for 'main' here and return it as the
+    //value to use for the public API for the built file.
+    return require('Chord');
+}));

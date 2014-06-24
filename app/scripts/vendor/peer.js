@@ -1052,9 +1052,9 @@ Reliable.higherBandwidthSDP = function(sdp) {
 Reliable.prototype.onmessage = function(msg) {};
 
 exports.Reliable = Reliable;
-exports.RTCSessionDescription = window.mozRTCSessionDescription || window.RTCSessionDescription;
-exports.RTCPeerConnection = window.mozRTCPeerConnection || window.webkitRTCPeerConnection || window.RTCPeerConnection;
-exports.RTCIceCandidate = window.mozRTCIceCandidate || window.RTCIceCandidate;
+exports.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription;
+exports.RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+exports.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate;
 var defaultConfig = {'iceServers': [{ 'url': 'stun:stun.l.google.com:19302' }]};
 var dataCount = 1;
 
@@ -1390,6 +1390,7 @@ function Peer(id, options) {
     port: util.CLOUD_PORT,
     key: 'peerjs',
     path: '/',
+    token: util.randomToken(),
     config: util.defaultConfig
   }, options);
   this.options = options;
@@ -1518,7 +1519,7 @@ Peer.prototype._retrieveId = function(cb) {
 Peer.prototype._initialize = function(id) {
   var self = this;
   this.id = id;
-  this.socket.start(this.id);
+  this.socket.start(this.id, this.options.token);
 }
 
 /** Handles messages from the server. */
@@ -1930,12 +1931,12 @@ DataConnection.prototype._handleDataMessage = function(e) {
     chunkInfo.count += 1;
 
     if (chunkInfo.total === chunkInfo.count) {
+      // Clean up before making the recursive call to `_handleDataMessage`.
+      delete this._chunkedData[id];
+
       // We've received all the chunks--time to construct the complete data.
       data = new Blob(chunkInfo.data);
       this._handleDataMessage({data: data});
-
-      // We can also just delete the chunks now.
-      delete this._chunkedData[id];
     }
 
     this._chunkedData[id] = chunkInfo;
@@ -2476,10 +2477,9 @@ util.inherits(Socket, EventEmitter);
 
 
 /** Check in with ID or get one from server. */
-Socket.prototype.start = function(id) {  
+Socket.prototype.start = function(id, token) {
   this.id = id;
 
-  var token = util.randomToken();
   this._httpUrl += '/' + id + '/' + token;
   this._wsUrl += '&id='+id+'&token='+token;
 
@@ -2641,9 +2641,17 @@ Socket.prototype.send = function(data) {
   } else {
     var http = new XMLHttpRequest();
     var url = this._httpUrl + '/' + data.type.toLowerCase();
+    var self = this;
     http.open('post', url, true);
     http.setRequestHeader('Content-Type', 'application/json');
     http.send(message);
+    http.onreadystatechange = function() {
+       if (this.readyState != 4)  { return; }
+       if (this.status === 404)  {
+         self.emit('error', 'Server deleted peer')
+         return;
+       }
+     };
   }
 }
 
