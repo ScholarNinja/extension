@@ -8,14 +8,22 @@ keywords immediately.
 
 ✓ Recovering from browser exit
   ✓ Index is not restored yet
-- Storing documents by docId instead of URL (hash of content)
-- Ability to become node for certain keywords (DHT)
-  - Find node is responsible for keyword - store in local index
-  - If not, find closest node and send to their index
-  - Abstract travels with document for keyword highlighting
-- Node bootstrapping
+✓ Storing documents by docId instead of URL (hash of content)
+✓ Node bootstrapping
+✓ Save Peer id and Peer entries before
+Solved because we're using webrtc-chord:
+✓ Ability to become node for certain keywords (DHT)
+  ✓ Find node is responsible for keyword - store in local index
+  ✓ If not, find closest node and send to their index
+✓ Solve performance issue
+  Solved by not using browserify on webrtc-chord and using the release directly.
+
+Pending
+
+- Look at node-webkit standalone new version
++- Abstract travels with document for keyword highlighting
 - Add local search for PLOS, ArXiV, PubMed and other APIs.
-- Save Peer id and Peer entries before
-MAYBE
+
+Backlog
 
 Look at https://github.com/fergiemcdowall/forage/issues/32
