@@ -76,6 +76,16 @@ var rules = {
         fulltext: '$("article main").html() + $("footer .ref-list").html()',
         year: '$(".article-dates dd time").get()[0].innerHTML.split("-")[0]',
         doi: '$(".self-citation a:first").text().replace("http://dx.doi.org/", "")'
+    },
+    'IOPScience': {
+        url: /iopscience.iop.org\/.*?\/article/,
+        journal: '$("ul.breadcrumbs li:nth-child(1) a").text()',
+        title: '$("div.publishingInfo h2").text().trim()',
+        authors: '$("p.authors").clone().children().remove().end().text().replace(" and ", ", ")',
+        abstract: '$("div.abst div div").text().trim()',
+        fulltext: '$("div.section:nth(1)").html() + $("dl.citationlist").html()',
+        year: '$("div.publishingInfo p:contains(\'©\')").html().split("<br>")[0].trim().split(" ")[1]',
+        doi: '$("div.publishingInfo p a:contains(\'doi\')").text().split(":")[1]'
     }
 };
 
