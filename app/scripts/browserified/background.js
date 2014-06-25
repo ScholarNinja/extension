@@ -65,15 +65,15 @@ var chord;
 var networkChecker;
 
 var peerJsConfig = {
-    host: '127.0.0.1',
+    host: 'scholar.ninja',
     port: 9002,
     debug: 3,
     config: {
         iceServers: [
             // Using public STUN for now.
+            // { url: 'stun:stun.l.google.com:19302' },
             { url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'},
             // { url: 'turn:scholar.ninja'}
-            // { url: 'stun:stun.l.google.com:19302'},
             // { url: 'stun:stun01.sipphone.com' },
             // { url: 'stun:stun.ekiga.net' },
             // { url: 'stun:stun.fwdnet.net' },
@@ -105,7 +105,7 @@ var config = {
     },
     numberOfEntriesInSuccessorList: 4,
     connectionPoolSize: 10,
-    connectionOpenTimeout: 5000,
+    connectionOpenTimeout: 10000,
     requestTimeout: 180000,
     debug: false,
     stabilizeTaskInterval: 15000,
