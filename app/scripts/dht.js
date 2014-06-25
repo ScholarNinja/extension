@@ -1,6 +1,6 @@
 'use strict';
 
-var _ = require('underscore');
+//var _ = require('underscore');
 var $ = require('jquery');
 var eliminatedPeers = [];
 var chord;
@@ -8,34 +8,35 @@ var networkChecker;
 
 var peerJsConfig = {
     host: 'scholar.ninja',
-    port: 9000,
-    debug: 1,
+    port: 9002,
+    debug: 3,
     config: {
         iceServers: [
             // Using public STUN for now.
-            { url: 'stun:stun.l.google.com:19302'},
-            { url: 'stun:stun01.sipphone.com' },
-            { url: 'stun:stun.ekiga.net' },
-            { url: 'stun:stun.fwdnet.net' },
-            { url: 'stun:stun.ideasip.com' },
-            { url: 'stun:stun.iptel.org' },
-            { url: 'stun:stun.rixtelecom.se'},
-            { url: 'stun:stun.schlund.de'},
-            { url: 'stun:stun.l.google.com:19302'},
-            { url: 'stun:stun1.l.google.com:19302'},
-            { url: 'stun:stun2.l.google.com:19302'},
-            { url: 'stun:stun3.l.google.com:19302'},
-            { url: 'stun:stun4.l.google.com:19302'},
-            { url: 'stun:stunserver.org'},
-            { url: 'stun:stun.softjoys.com'},
-            { url: 'stun:stun.voiparound.com'},
-            { url: 'stun:stun.voipbuster.com'},
-            { url: 'stun:stun.voipstunt.com'},
-            { url: 'stun:stun.voxgratia.org'},
-            { url: 'stun:stun.xten.com'},
-            { url: 'turn:numb.viagenie.ca', credential: 'muazkh', username: 'webrtc@live.com'},
-            { url: 'turn:192.158.29.39:3478?transport=udp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'},
-            { url: 'turn:192.158.29.39:3478?transport=tcp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'}
+            { url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'},
+            // { url: 'turn:scholar.ninja'}
+            // { url: 'stun:stun.l.google.com:19302'},
+            // { url: 'stun:stun01.sipphone.com' },
+            // { url: 'stun:stun.ekiga.net' },
+            // { url: 'stun:stun.fwdnet.net' },
+            // { url: 'stun:stun.ideasip.com' },
+            // { url: 'stun:stun.iptel.org' },
+            // { url: 'stun:stun.rixtelecom.se'},
+            // { url: 'stun:stun.schlund.de'},
+            // { url: 'stun:stun1.l.google.com:19302'},
+            // { url: 'stun:stun2.l.google.com:19302'},
+            // { url: 'stun:stun3.l.google.com:19302'},
+            // { url: 'stun:stun4.l.google.com:19302'},
+            // { url: 'stun:stunserver.org'},
+            // { url: 'stun:stun.softjoys.com'},
+            // { url: 'stun:stun.voiparound.com'},
+            // { url: 'stun:stun.voipbuster.com'},
+            // { url: 'stun:stun.voipstunt.com'},
+            // { url: 'stun:stun.voxgratia.org'},
+            // { url: 'stun:stun.xten.com'},
+            // { url: 'turn:numb.viagenie.ca', credential: 'muazkh', username: 'webrtc@live.com'},
+            // { url: 'turn:192.158.29.39:3478?transport=udp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'},
+            // { url: 'turn:192.158.29.39:3478?transport=tcp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'}
         ]
     }
 };
@@ -44,10 +45,10 @@ var config = {
     peer: { // The object to pass to the Peer constructor.
         options: peerJsConfig
     },
-    numberOfEntriesInSuccessorList: 3,
+    numberOfEntriesInSuccessorList: 4,
     connectionPoolSize: 10,
-    connectionOpenTimeout: 10000,
-    requestTimeout: 30000,
+    connectionOpenTimeout: 5000,
+    requestTimeout: 180000,
     debug: false,
     stabilizeTaskInterval: 15000,
     fixFingerTaskInterval: 15000,
@@ -96,11 +97,14 @@ var updatePeerId = function(peerId) {
 
     chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.on('error', function(error) {
         console.log(error);
-        chord.leave();
-        if(networkChecker) {
-            clearInterval(networkChecker);
+        // Ignore other errors, are handled elswhere.
+        if(error.message === 'Server deleted peer') {
+            chord.leave();
+            if(networkChecker) {
+                clearInterval(networkChecker);
+            }
+            createOrJoin();
         }
-        createOrJoin();
     });
 
     console.log('My peer ID: ' + peerId);
@@ -170,12 +174,13 @@ var join = function(myPeerId, error) {
         // Hacky solution for ID is taken issue
         if(error.type === 'unavailable-id') {
             // Usually the taken ID will be a stale node (us from the past)
-            eliminatedPeers.push(config.peer.id);
             delete config.peer.id;
         }
 
+        //"Failed to open connection to 8brhes5lytmd9529."
+        // "FIND_SUCCESSOR request to aoeupaxej1rr7ldi timed out."
         // Retry with another peer after 1 second
-        var currentPeer = error.message.substr(22,16);
+        var currentPeer = error.message.match(/to (?:peer )?(\w{16})/)[1];
         eliminatedPeers.push(currentPeer, myPeerId);
         setTimeout(createOrJoin, 1000);
     } else {
@@ -187,10 +192,10 @@ window.onunload = window.onbeforeunload = function() {
     chord.leave();
 };
 
-chord.onentriesinserted = _.debounce(function() {
-    console.log('Storing entries locally.');
-    chrome.storage.local.set({entries: chord.getEntries()});
-}, 10000);
+// chord.onentriesinserted = _.debounce(function() {
+//     console.log('Storing entries locally.');
+//     chrome.storage.local.set({entries: chord.getEntries()});
+// }, 10000);
 
 module.exports = chord;
 module.exports.get = chord.retrieve;

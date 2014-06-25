@@ -71,7 +71,10 @@ function get(ref, callback) {
             if(error) {
                 callback(error);
             } else if(entries.length === 0) {
-                callback('Does not exist.');
+                callback({
+                    type: 'no-exist',
+                    message: 'Document ' + ref + ' does not exist on the network.'
+                });
             } else {
                 // Cache locally
                 documents[ref] = entries[0];
@@ -198,7 +201,7 @@ function find(query, port) {
             });
 
             async.map(matchingDocuments, get.bind(this), function (error, result) {
-                if(error) {
+                if(error && error.type !== 'no-exist') {
                     response = {status: 'FAIL'};
                 } else {
                     // An array of documents
