@@ -9,11 +9,11 @@ var networkChecker;
 var peerJsConfig = {
     host: 'scholar.ninja',
     port: 9002,
-    debug: 3,
+    debug: 1,
     config: {
         iceServers: [
             // Using public STUN for now.
-            // { url: 'stun:stun.l.google.com:19302' },
+            { url: 'stun:stun.l.google.com:19302' },
             { url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'},
             // { url: 'turn:scholar.ninja'}
             // { url: 'stun:stun01.sipphone.com' },
@@ -45,20 +45,19 @@ var config = {
     peer: { // The object to pass to the Peer constructor.
         options: peerJsConfig
     },
-    numberOfEntriesInSuccessorList: 4,
-    connectionPoolSize: 10,
+    numberOfEntriesInSuccessorList: 5,
+    connectionPoolSize: 20,
     connectionOpenTimeout: 10000,
-    requestTimeout: 180000,
+    requestTimeout: 120000,
     debug: false,
-    stabilizeTaskInterval: 15000,
-    fixFingerTaskInterval: 15000,
-    checkPredecessorTaskInterval: 15000,
-    networkCheckInterval: 15000
+    stabilizeTaskInterval: 30000,
+    fixFingerTaskInterval: 30000,
+    checkPredecessorTaskInterval: 30000,
+    networkCheckInterval: 30000
 };
 
 // Use the existing peer ID, if we have it.
 chrome.storage.local.get('peer', function (obj) {
-
     if(obj.peer !== undefined) {
         config.peer.id = obj.peer.id;
     }
@@ -173,15 +172,17 @@ var join = function(myPeerId, error) {
 
         // Hacky solution for ID is taken issue
         if(error.type === 'unavailable-id') {
+            // Example: "ID `w34ru68zauz93sor` is taken"
             // Usually the taken ID will be a stale node (us from the past)
             delete config.peer.id;
+        } else {
+            // Examples:
+            // "Failed to open connection to 8brhes5lytmd9529."
+            // "FIND_SUCCESSOR request to aoeupaxej1rr7ldi timed out."
+            var currentPeer = error.message.match(/to (?:peer )?(\w{16})/)[1];
+            eliminatedPeers.push(currentPeer, myPeerId);
         }
-
-        //"Failed to open connection to 8brhes5lytmd9529."
-        // "FIND_SUCCESSOR request to aoeupaxej1rr7ldi timed out."
         // Retry with another peer after 1 second
-        var currentPeer = error.message.match(/to (?:peer )?(\w{16})/)[1];
-        eliminatedPeers.push(currentPeer, myPeerId);
         setTimeout(createOrJoin, 1000);
     } else {
         updatePeerId(myPeerId);
