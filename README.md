@@ -6,7 +6,7 @@ A distributed open search engine for scholarly content, fully contained within a
 
 # How to install?
 
-You can install Scholar Ninja through the Chrome's web store: https://chrome.google.com/webstore/detail/scholar-ninja/mngpckgljabecionknlpnnbamopcehgp
+You can install Scholar Ninja through the Chrome web store: https://chrome.google.com/webstore/detail/scholar-ninja/mngpckgljabecionknlpnnbamopcehgp
 
 # More info
 
