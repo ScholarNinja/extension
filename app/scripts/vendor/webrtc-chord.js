@@ -637,6 +637,11 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
     }
 
     this._bytes = _.last(bytes, ID._BYTE_SIZE);
+    this._hexString = _.map(this._bytes, function(b) {
+      var str = b.toString(16);
+      return b < 0x10 ? "0" + str : str;
+    }).join("");
+    this._bitLength = _.size(this._bytes) * 8;
   };
 
   ID._BYTE_SIZE = 32;
@@ -651,10 +656,10 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
 
   ID._createBytes = function(str) {
     var hash = CryptoJS.SHA256(str).toString(CryptoJS.enc.Hex);
-    return ID._createBytesfromHexString(hash);
+    return ID._createBytesFromHexString(hash);
   };
 
-  ID._createBytesfromHexString = function(str) {
+  ID._createBytesFromHexString = function(str) {
     if (!Utils.isNonemptyString(str)) {
       throw new Error("Invalid argument.");
     }
@@ -665,7 +670,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
   };
 
   ID.fromHexString = function(str) {
-    return new ID(ID._createBytesfromHexString(str));
+    return new ID(ID._createBytesFromHexString(str));
   };
 
   ID.prototype = {
@@ -682,14 +687,8 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
         return (this.compareTo(fromId) > 0 && this.compareTo(toId) < 0);
       }
 
-      var minId = new ID(_(_.size(this._bytes)).times(function() {
-        return 0x00;
-      }));
-      var maxId = new ID(_(_.size(this._bytes)).times(function() {
-        return 0xff;
-      }));
-      return ((!fromId.equals(maxId) && this.compareTo(fromId) > 0 && this.compareTo(maxId) <= 0) ||
-              (!minId.equals(toId) && this.compareTo(minId) >= 0 && this.compareTo(toId) < 0));
+      return ((this.compareTo(fromId) > 0 && this.compareTo(ID.maxId) <= 0 && !fromId.equals(ID.maxId)) ||
+              (this.compareTo(ID.minId) >= 0 && this.compareTo(toId) < 0 && !ID.minId.equals(toId)));
     },
 
     addPowerOfTwo: function(powerOfTwo) {
@@ -720,11 +719,10 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
         throw new Error("Invalid argument.");
       }
 
-      var bytes = _.zip(this._bytes, id._bytes);
-      for (var i = 0; i < bytes.length; i++) {
-        if (bytes[i][0] < bytes[i][1]) {
+      for (var i = 0; i < ID._BYTE_SIZE; i++) {
+        if (this._bytes[i] < id._bytes[i]) {
           return -1;
-        } else if (bytes[i][0] > bytes[i][1]) {
+        } else if (this._bytes[i] > id._bytes[i]) {
           return 1;
         }
       }
@@ -736,16 +734,21 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
     },
 
     getLength: function() {
-      return _.size(this._bytes) * 8;
+      return this._bitLength;
     },
 
     toHexString: function() {
-      return _.map(this._bytes, function(b) {
-        var str = b.toString(16);
-        return b < 0x10 ? "0" + str : str;
-      }).join("");
+      return this._hexString;
     }
   };
+
+  ID.minId = new ID(_(ID._BYTE_SIZE).times(function() {
+    return 0x00;
+  }));
+
+  ID.maxId = new ID(_(ID._BYTE_SIZE).times(function() {
+    return 0xff;
+  }));
 
   return ID;
 });
@@ -1233,7 +1236,9 @@ define('PeerAgent',['underscore', 'peerjs', 'Utils'], function(_, Peer, Utils) {
       self._peer.on('connection', function(conn) {
         Utils.debug("Connection from", conn.peer);
 
-        callbacks.onConnection(conn.peer, conn);
+        conn.on('open', function() {
+          callbacks.onConnection(conn.peer, conn);
+        });
       });
 
       self._peer.on('close', function() {
@@ -2783,6 +2788,10 @@ define('LocalNode',[
   _, NodeFactory, EntryList, Entry, ReferenceList, ID, StabilizeTask, FixFingerTask, CheckPredecessorTask, Utils
 ) {
   var LocalNode = function(chord, config) {
+    if (!Utils.isPositiveNumber(config.maximumNumberOfAttemptsOfNotifyAndCopyOnJoin)) {
+      config.maximumNumberOfAttemptsOfNotifyAndCopyOnJoin = 5;
+    }
+
     this._chord = chord;
     this._config = config;
     this.nodeId = null;
@@ -2870,7 +2879,7 @@ define('LocalNode',[
                         "(remote peer ID:", node.getPeerId(), ", attempts:", attempts, ").");
 
             if (attempts === 0) {
-              callback(null, null, new Error("Reached maximum count of attempts."));
+              callback(null, null, new Error("Reached maximum number of attempts of NOTIFY_AND_COPY."));
               return;
             }
 
@@ -2907,7 +2916,8 @@ define('LocalNode',[
               _notifyAndCopyEntries(refs[0], attempts - 1, callback);
             });
           };
-          _notifyAndCopyEntries(successor, 3, function(refs, entries, error) {
+          var maximumNumberOfAttempts = self._config.maximumNumberOfAttemptsOfNotifyAndCopyOnJoin;
+          _notifyAndCopyEntries(successor, maximumNumberOfAttempts, function(refs, entries, error) {
             if (error) {
               console.log("Failed to notify and copy entries:", error);
               self._createTasks();
