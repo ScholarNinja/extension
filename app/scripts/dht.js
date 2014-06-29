@@ -1,6 +1,6 @@
 'use strict';
 
-//var _ = require('underscore');
+var _ = require('underscore');
 var $ = require('jquery');
 var eliminatedPeers = [];
 var chord;
@@ -48,7 +48,7 @@ var config = {
     numberOfEntriesInSuccessorList: 5,
     connectionPoolSize: 20,
     connectionOpenTimeout: 10000,
-    requestTimeout: 120000,
+    requestTimeout: 60000,
     debug: false,
     stabilizeTaskInterval: 30000,
     fixFingerTaskInterval: 30000,
@@ -141,11 +141,11 @@ var createOrJoin = function() {
                 }
             });
 
-            // First peer
-            if (peers[0]) {
+            var randomPeer = _.sample(peers);
+            if (randomPeer) {
                 // Join an existing chord network
-                console.log('Joining', peers[0]);
-                chord.join(peers[0], join);
+                console.log('Joining', randomPeer);
+                chord.join(randomPeer, join);
             } else if (eliminatedPeers.length !== 0) {
                 console.log('Fatal: Unable to join any of the existing peers. Failing.');
             } else {
@@ -193,10 +193,10 @@ window.onunload = window.onbeforeunload = function() {
     chord.leave();
 };
 
-// chord.onentriesinserted = _.debounce(function() {
-//     console.log('Storing entries locally.');
-//     chrome.storage.local.set({entries: chord.getEntries()});
-// }, 10000);
+chord.onentriesinserted = _.debounce(function() {
+    console.log('Storing entries locally.');
+    chrome.storage.local.set({entries: chord.getEntries()});
+}, 10000);
 
 module.exports = chord;
 module.exports.get = chord.retrieve;

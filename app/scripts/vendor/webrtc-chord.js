@@ -673,6 +673,22 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
     return new ID(ID._createBytesFromHexString(str));
   };
 
+  ID._addInBytes = function(bytes1, bytes2) {
+    var copy = _.clone(bytes1);
+    var carry = 0;
+    for (var i = _.size(bytes1) - 1; i >= 0; i--) {
+      copy[i] += (bytes2[i] + carry);
+      if (copy[i] < 0) {
+        carry = -1;
+        copy[i] += 0x100;
+      } else {
+        carry = copy[i] >> 8;
+      }
+      copy[i] &= 0xff;
+    }
+    return copy;
+  };
+
   ID.prototype = {
     isInInterval: function(fromId, toId) {
       if (_.isNull(fromId) || _.isNull(toId)) {
@@ -712,6 +728,31 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
       }
 
       return new ID(copy);
+    },
+
+    add: function(id) {
+      return new ID(ID._addInBytes(this._bytes, id._bytes));
+    },
+
+    sub: function(id) {
+      return new ID(ID._addInBytes(this._bytes, _.map(id._bytes, function(b) { return -b; })));
+    },
+
+    getIntervalInPowerOfTwoFrom: function(id) {
+      if (this.equals(id)) {
+        return -Infinity;
+      }
+
+      var diff = this.sub(id);
+      for (var i = 0; i < this.getLength(); i++) {
+        if (ID.minId.addPowerOfTwo(i).compareTo(diff) > 0) {
+          if (i === 0) {
+            return -Infinity;
+          }
+          break;
+        }
+      }
+      return i - 1;
     },
 
     compareTo: function(id) {
@@ -2065,66 +2106,32 @@ define('FingerTable',['underscore'], function(_) {
 
     this._localId = localId;
     this._references = references;
-    this._remoteNodes = _(this._localId.getLength()).times(function() { return null; });
+    this._table = _(this._localId.getLength()).times(function() { return null; });
+    this._powerOfTwos = _(this._localId.getLength()).times(function(i) {
+      return localId.addPowerOfTwo(i);
+    });
   };
 
   FingerTable.prototype = {
-    _setEntry: function(index, node) {
-      if (!_.isNumber(index) || _.isNull(node)) {
-        throw new Error("Invalid arguments.");
-      }
-      if (index < 0 || index >= _.size(this._remoteNodes)) {
-        throw new Error("Invalid index.");
-      }
-
-      this._remoteNodes[index] = node;
-    },
-
-    _getEntry: function(index) {
-      if (!_.isNumber(index)) {
-        throw new Error("Invalid argument.");
-      }
-      if (index < 0 || index >= _.size(this._remoteNodes)) {
-        throw new Error("Invalid index.");
-      }
-
-      return this._remoteNodes[index];
-    },
-
-    _unsetEntry: function(index) {
-      if (!_.isNumber(index)) {
-        throw new Error("Invalid argument.");
-      }
-      if (index < 0 || index >= _.size(this._remoteNodes)) {
-        throw new Error("Invalid index.");
-      }
-
-      var overwrittenNode = this._getEntry(index);
-
-      this._remoteNodes[index] = null;
-
-      if (!_.isNull(overwrittenNode)) {
-        this._references.disconnectIfUnreferenced(overwrittenNode);
-      }
-    },
-
     addReference: function(node) {
       if (_.isNull(node)) {
         throw new Error("Invalid argument.");
       }
 
-      for (var i = 0; i < _.size(this._remoteNodes); i++) {
-        var startOfInterval = this._localId.addPowerOfTwo(i);
-        if (!startOfInterval.isInInterval(this._localId, node.nodeId)) {
-          break;
-        }
+      if (node.nodeId.equals(this._localId)) {
+        return;
+      }
 
-        if (_.isNull(this._getEntry(i))) {
-          this._setEntry(i, node);
-        } else if (node.nodeId.isInInterval(this._localId, this._getEntry(i).nodeId)) {
-          var oldEntry = this._getEntry(i);
-          this._setEntry(i, node);
+      var index = node.nodeId.getIntervalInPowerOfTwoFrom(this._localId);
+      for (var i = index + 1; i < this._table.length; i++) {
+        if (!this._table[i]) {
+          this._table[i] = node;
+        } else if (node.nodeId.isInInterval(this._table[i].nodeId, this._powerOfTwos[i])) {
+          var oldEntry = this._table[i];
+          this._table[i] = node;
           this._references.disconnectIfUnreferenced(oldEntry);
+        } else {
+          break;
         }
       }
     },
@@ -2134,13 +2141,12 @@ define('FingerTable',['underscore'], function(_) {
         throw new Error("Invalid argument.");
       }
 
-      for (var i = _.size(this._remoteNodes) - 1; i >= 0; i--) {
-        if (!_.isNull(this._getEntry(i)) &&
-            this._getEntry(i).nodeId.isInInterval(this._localId, key)) {
-          return this._getEntry(i);
-        }
+      if (key.equals(this._localId)) {
+        return null;
       }
-      return null;
+
+      var index = key.getIntervalInPowerOfTwoFrom(this._localId);
+      return this._table[index];
     },
 
     removeReference: function(node) {
@@ -2150,38 +2156,29 @@ define('FingerTable',['underscore'], function(_) {
         throw new Error("Invalid argument.");
       }
 
-      var referenceForReplacement = null;
-      for (var i = _.size(this._remoteNodes) - 1; i >= 0; i--) {
-        var n = this._getEntry(i);
-        if (node.equals(n)) {
-          break;
-        }
-        if (!_.isNull(n)) {
-          referenceForReplacement = n;
-        }
+      if (node.nodeId.equals(this._localId)) {
+        return;
       }
 
-      _.each(this._remoteNodes, function(n, i) {
-        if (node.equals(self._getEntry(i))) {
-          if (_.isNull(referenceForReplacement)) {
-            self._unsetEntry(i);
-          } else {
-            self._setEntry(i, referenceForReplacement);
-          }
+      var index = node.nodeId.getIntervalInPowerOfTwoFrom(this._localId);
+      var replacingNode = this._table[index];
+      for (var i = index + 1; i < this._table.length; i++) {
+        if (!node.equals(this._table[i])) {
+          break;
         }
-      });
 
-      _.chain(this._references.getSuccessors())
-        .reject(function(s) { return s.equals(node); })
-        .each(function(s) { self.addReference(s); });
+        this._table[i] = replacingNode;
+      }
+
+      this._references.disconnectIfUnreferenced(node);
     },
 
     getFirstFingerTableEntries: function(count) {
       var result = [];
-      for (var i = 0; i < _.size(this._remoteNodes); i++) {
-        if (!_.isNull(this._getEntry(i))) {
-          if (_.isEmpty(result) || !_.last(result).equals(this._getEntry(i))) {
-            result.push(this._getEntry(i));
+      for (var i = 0; i < this._table.length; i++) {
+        if (this._table[i]) {
+          if (_.isEmpty(result) || !_.last(result).equals(this._table[i])) {
+            result.push(this._table[i]);
           }
         }
         if (_.size(result) >= count) {
@@ -2196,14 +2193,20 @@ define('FingerTable',['underscore'], function(_) {
         throw new Error("Invalid argument.");
       }
 
-      return _.some(this._remoteNodes, function(node) {
-        return reference.equals(node);
-      });
+      if (reference.nodeId.equals(this._localId)) {
+        return false;
+      }
+
+      var index = reference.nodeId.getIntervalInPowerOfTwoFrom(this._localId);
+      if (index === this._table.length - 1) {
+        return false;
+      }
+      return reference.equals(this._table[index + 1]);
     },
 
     getStatus: function() {
       var self = this;
-      return _.map(this._remoteNodes, function(node) {
+      return _.map(this._table, function(node) {
         return _.isNull(node) ? null : node.toNodeInfo();
       });
     },
@@ -2211,31 +2214,31 @@ define('FingerTable',['underscore'], function(_) {
     toString: function() {
       var self = this;
 
-      return "[FingerTable]\n" + _.chain(this._remoteNodes)
+      return "[FingerTable]\n" + _.chain(this._table)
         .map(function(node, i) {
           if (_.isNull(node)) {
             return "";
           }
 
-          if (i === 0 || (i > 0 && !node.equals(self._getEntry(i - 1)))) {
+          if (i === 0 || (i > 0 && !node.equals(self._table[i - 1]))) {
             return "[" + i + "] " + node.toString();
           }
 
-          if (i === _.size(self._remoteNodes) - 1 ||
-              !node.equals(self._getEntry(i + 1))) {
+          if (i === self._table.length - 1 ||
+              !node.equals(self._table[i + 1])) {
             return "[" + i + "]";
           }
 
           if ((i > 1 &&
-               node.equals(self._getEntry(i - 1)) &&
-               !node.equals(self._getEntry(i - 2))) ||
-              (i === 1 && node.equals(self._getEntry(i - 1)))) {
+               node.equals(self._table[i - 1]) &&
+               !node.equals(self._table[i - 2])) ||
+              (i === 1 && node.equals(self._table[i - 1]))) {
             return "..."
           }
 
           if (i > 1 &&
-              node.equals(self._getEntry(i - 1)) &&
-              node.equals(self._getEntry(i - 2))) {
+              node.equals(self._table[i - 1]) &&
+              node.equals(self._table[i - 2])) {
             return "";
           }
 
