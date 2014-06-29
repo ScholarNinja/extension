@@ -436,7 +436,7 @@ var requirejs, require, define;
 
 define("lib/almond", function(){});
 
-define('underscore',[], function() {
+define('lodash',[], function() {
   return _;
 });
 
@@ -444,7 +444,7 @@ define('cryptojs',[], function() {
   return CryptoJS;
 });
 
-define('Utils',['underscore'], function(_) {
+define('Utils',['lodash'], function(_) {
   var Utils = {
     isNonemptyString: function(value) {
       return _.isString(value) && !_.isEmpty(value);
@@ -625,7 +625,7 @@ define('Utils',['underscore'], function(_) {
   return Utils;
 });
 
-define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
+define('ID',['lodash', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
   var ID = function(bytes) {
     _.each(bytes, function(b) {
       if (_.isNaN(b) || !_.isNumber(b) || b < 0x00 || 0xff < b) {
@@ -787,7 +787,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
   return ID;
 });
 
-define('Response',['underscore', 'Utils'], function(_, Utils) {
+define('Response',['lodash', 'Utils'], function(_, Utils) {
   var Response = function(status, method, result, requestId, timestamp) {
     if (!Utils.isNonemptyString(status) ||
         !Utils.isNonemptyString(method) ||
@@ -839,7 +839,7 @@ define('Response',['underscore', 'Utils'], function(_, Utils) {
   return Response;
 });
 
-define('Request',['underscore', 'cryptojs', 'Response', 'Utils'], function(_, CryptoJS, Response, Utils) {
+define('Request',['lodash', 'cryptojs', 'Response', 'Utils'], function(_, CryptoJS, Response, Utils) {
   var Request = function(method, params, requestId, timestamp) {
     if (!Utils.isNonemptyString(method) || !_.isObject(params) ||
         !Utils.isNonemptyString(requestId) || !_.isNumber(timestamp)) {
@@ -885,7 +885,7 @@ define('Request',['underscore', 'cryptojs', 'Response', 'Utils'], function(_, Cr
   return Request;
 });
 
-define('Entry',['underscore', 'ID'], function(_, ID) {
+define('Entry',['lodash', 'ID'], function(_, ID) {
   var Entry = function(id, value) {
     if (_.isNull(id) || _.isUndefined(value)) {
       throw new Error("Invalid argument.");
@@ -922,7 +922,7 @@ define('Entry',['underscore', 'ID'], function(_, ID) {
   return Entry;
 });
 
-define('Node',['underscore', 'ID', 'Request', 'Entry', 'Utils'], function(_, ID, Request, Entry, Utils) {
+define('Node',['lodash', 'ID', 'Request', 'Entry', 'Utils'], function(_, ID, Request, Entry, Utils) {
   var Node = function(nodeInfo, nodeFactory, connectionFactory, requestHandler, config) {
     if (!Node.isValidNodeInfo(nodeInfo)) {
       throw new Error("Invalid arguments.");
@@ -1235,7 +1235,7 @@ define('peerjs',[], function() {
   return Peer;
 });
 
-define('PeerAgent',['underscore', 'peerjs', 'Utils'], function(_, Peer, Utils) {
+define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
   var PeerAgent = function(config, callbacks) {
     var self = this;
 
@@ -1359,7 +1359,7 @@ define('PeerAgent',['underscore', 'peerjs', 'Utils'], function(_, Peer, Utils) {
   return PeerAgent;
 });
 
-define('Connection',['underscore', 'Request', 'Response'], function(_, Request, Response) {
+define('Connection',['lodash', 'Request', 'Response'], function(_, Request, Response) {
   var Connection = function(conn, callbacks) {
     var self = this;
 
@@ -1426,7 +1426,7 @@ define('Connection',['underscore', 'Request', 'Response'], function(_, Request, 
   return Connection;
 });
 
-define('ConnectionFactory',['underscore', 'PeerAgent', 'Connection', 'Utils'], function(_, PeerAgent, Connection, Utils) {
+define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], function(_, PeerAgent, Connection, Utils) {
   var ConnectionFactory = function(config, nodeFactory, callback) {
     var self = this;
 
@@ -1603,7 +1603,7 @@ define('ConnectionFactory',['underscore', 'PeerAgent', 'Connection', 'Utils'], f
   return ConnectionFactory;
 });
 
-define('RequestHandler',['underscore', 'ID', 'Response', 'Entry', 'Utils'], function(_, ID, Response, Entry, Utils) {
+define('RequestHandler',['lodash', 'ID', 'Response', 'Entry', 'Utils'], function(_, ID, Response, Entry, Utils) {
   var RequestHandler = function(localNode, nodeFactory) {
     this._localNode = localNode;
     this._nodeFactory = nodeFactory;
@@ -1830,7 +1830,7 @@ define('RequestHandler',['underscore', 'ID', 'Response', 'Entry', 'Utils'], func
 });
 
 define('NodeFactory',[
-  'underscore', 'Node', 'ConnectionFactory', 'RequestHandler', 'ID', 'Utils'
+  'lodash', 'Node', 'ConnectionFactory', 'RequestHandler', 'ID', 'Utils'
 ], function(_, Node, ConnectionFactory, RequestHandler, ID, Utils) {
   var NodeFactory = function(localNode, config) {
     var self = this;
@@ -1943,7 +1943,7 @@ define('NodeFactory',[
   return NodeFactory;
 });
 
-define('EntryList',['underscore', 'ID', 'Utils'], function(_, ID, Utils) {
+define('EntryList',['lodash', 'ID', 'Utils'], function(_, ID, Utils) {
   var EntryList = function() {
     this._entries = {};
   };
@@ -2091,7 +2091,7 @@ define('EntryList',['underscore', 'ID', 'Utils'], function(_, ID, Utils) {
   return EntryList;
 });
 
-define('FingerTable',['underscore'], function(_) {
+define('FingerTable',['lodash'], function(_) {
   var FingerTable = function(localId, references) {
     if (!localId || !references) {
       throw new Error("Invalid arguments.");
@@ -2246,7 +2246,7 @@ define('FingerTable',['underscore'], function(_) {
   return FingerTable;
 });
 
-define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
+define('SuccessorList',['lodash', 'Utils'], function(_, Utils) {
   var SuccessorList = function(localId, entries, references, config) {
     if (!localId || !entries || !references) {
       throw new Error("Invalid argument.");
@@ -2392,7 +2392,7 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
   return SuccessorList;
 });
 
-define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(_, FingerTable, SuccessorList) {
+define('ReferenceList',['lodash', 'FingerTable', 'SuccessorList'], function(_, FingerTable, SuccessorList) {
   var ReferenceList = function(localId, entries, config) {
     if (!localId || !entries) {
       throw new Error("Invalid arguments.");
@@ -2573,7 +2573,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
   return ReferenceList;
 });
 
-define('StabilizeTask',['underscore', 'Utils'], function(_, Utils) {
+define('StabilizeTask',['lodash', 'Utils'], function(_, Utils) {
   var StabilizeTask = function(localNode, references, entries) {
     this._localNode = localNode;
     this._references = references;
@@ -2675,7 +2675,7 @@ define('StabilizeTask',['underscore', 'Utils'], function(_, Utils) {
   return StabilizeTask;
 });
 
-define('FixFingerTask',['underscore', 'Utils'], function(_, Utils) {
+define('FixFingerTask',['lodash', 'Utils'], function(_, Utils) {
   var FixFingerTask = function(localNode, references) {
     this._localNode = localNode;
     this._references = references;
@@ -2726,7 +2726,7 @@ define('FixFingerTask',['underscore', 'Utils'], function(_, Utils) {
   return FixFingerTask;
 });
 
-define('CheckPredecessorTask',['underscore', 'Utils'], function(_, Utils) {
+define('CheckPredecessorTask',['lodash', 'Utils'], function(_, Utils) {
   var CheckPredecessorTask = function(references) {
     this._references = references;
     this._timer = null;
@@ -2777,7 +2777,7 @@ define('CheckPredecessorTask',['underscore', 'Utils'], function(_, Utils) {
 });
 
 define('LocalNode',[
-  'underscore', 'NodeFactory', 'EntryList', 'Entry', 'ReferenceList', 'ID', 'StabilizeTask',
+  'lodash', 'NodeFactory', 'EntryList', 'Entry', 'ReferenceList', 'ID', 'StabilizeTask',
   'FixFingerTask', 'CheckPredecessorTask', 'Utils'
 ], function(
   _, NodeFactory, EntryList, Entry, ReferenceList, ID, StabilizeTask, FixFingerTask, CheckPredecessorTask, Utils
@@ -2870,7 +2870,7 @@ define('LocalNode',[
           self._references.addReference(successor);
 
           var _notifyAndCopyEntries = function(node, attempts, callback) {
-            Utils.debug("[join] Trying to notify and copy entries "+
+            Utils.debug("[join] Trying to notify and copy entries "+ 
                         "(remote peer ID:", node.getPeerId(), ", attempts:", attempts, ").");
 
             if (attempts === 0) {
@@ -3017,7 +3017,7 @@ define('LocalNode',[
       });
     },
 
-
+    
     getEntries: function() {
       return this._entries.dump();
     },
@@ -3134,7 +3134,7 @@ define('LocalNode',[
 
       if (!_.isNull(this._references.getPredecessor()) &&
           !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
-        this._references.getPredecessor().insertEntry(entry, callback);
+        this._references.getPredecessor().insertEntry(entry, callback); 
         return;
       }
 
@@ -3227,7 +3227,7 @@ define('LocalNode',[
   return LocalNode;
 });
 
-define('Chord',['underscore', 'LocalNode', 'Utils'], function(_, LocalNode, Utils) {
+define('Chord',['lodash', 'LocalNode', 'Utils'], function(_, LocalNode, Utils) {
   var Chord = function(config) {
     if (!_.isObject(config)) {
       throw new Error("Invalid argument.");
