@@ -632,7 +632,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
         throw new Error("Invalid argument.");
       }
     });
-    if (_.size(bytes) !== ID._BYTE_SIZE) {
+    if (bytes.length !== ID._BYTE_SIZE) {
       throw new Error("Invalid argument.");
     }
 
@@ -641,7 +641,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
       var str = b.toString(16);
       return b < 0x10 ? "0" + str : str;
     }).join("");
-    this._bitLength = _.size(this._bytes) * 8;
+    this._bitLength = this._bytes.length * 8;
   };
 
   ID._BYTE_SIZE = 32;
@@ -664,9 +664,9 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
       throw new Error("Invalid argument.");
     }
 
-    return _(Math.floor(_.size(str) / 2)).times(function(i) {
+    return _(Math.floor(str.length / 2)).times(function(i) {
       return parseInt(str.substr(i * 2, 2), 16);
-    });
+    }).value();
   };
 
   ID.fromHexString = function(str) {
@@ -676,7 +676,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
   ID._addInBytes = function(bytes1, bytes2) {
     var copy = _.clone(bytes1);
     var carry = 0;
-    for (var i = _.size(bytes1) - 1; i >= 0; i--) {
+    for (var i = bytes1.length - 1; i >= 0; i--) {
       copy[i] += (bytes2[i] + carry);
       if (copy[i] < 0) {
         carry = -1;
@@ -691,7 +691,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
 
   ID.prototype = {
     isInInterval: function(fromId, toId) {
-      if (_.isNull(fromId) || _.isNull(toId)) {
+      if (!fromId || !toId) {
         throw new Error("Invalid arguments.");
       }
 
@@ -708,15 +708,12 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
     },
 
     addPowerOfTwo: function(powerOfTwo) {
-      if (!_.isNumber(powerOfTwo)) {
-        throw new Error("Invalid argument.");
-      }
-      if (powerOfTwo < 0 || powerOfTwo >= this.getLength()) {
+      if (powerOfTwo < 0 || powerOfTwo >= this._bitLength) {
         throw new Error("Power of two out of index.");
       }
 
       var copy = _.clone(this._bytes);
-      var indexOfBytes = _.size(this._bytes) - 1 - Math.floor(powerOfTwo / 8);
+      var indexOfBytes = this._bytes.length - 1 - Math.floor(powerOfTwo / 8);
       var valueToAdd = [1, 2, 4, 8, 16, 32, 64, 128][powerOfTwo % 8];
       for (var i = indexOfBytes; i >= 0; i--) {
         copy[i] += valueToAdd;
@@ -744,7 +741,7 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
       }
 
       var diff = this.sub(id);
-      for (var i = 0; i < this.getLength(); i++) {
+      for (var i = 0; i < this._bitLength; i++) {
         if (ID.minId.addPowerOfTwo(i).compareTo(diff) > 0) {
           if (i === 0) {
             return -Infinity;
@@ -756,10 +753,6 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
     },
 
     compareTo: function(id) {
-      if (this.getLength() !== id.getLength()) {
-        throw new Error("Invalid argument.");
-      }
-
       for (var i = 0; i < ID._BYTE_SIZE; i++) {
         if (this._bytes[i] < id._bytes[i]) {
           return -1;
@@ -785,11 +778,11 @@ define('ID',['underscore', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
 
   ID.minId = new ID(_(ID._BYTE_SIZE).times(function() {
     return 0x00;
-  }));
+  }).value());
 
   ID.maxId = new ID(_(ID._BYTE_SIZE).times(function() {
     return 0xff;
-  }));
+  }).value());
 
   return ID;
 });
@@ -2100,21 +2093,21 @@ define('EntryList',['underscore', 'ID', 'Utils'], function(_, ID, Utils) {
 
 define('FingerTable',['underscore'], function(_) {
   var FingerTable = function(localId, references) {
-    if (_.isNull(localId) || _.isNull(references)) {
+    if (!localId || !references) {
       throw new Error("Invalid arguments.");
     }
 
     this._localId = localId;
     this._references = references;
-    this._table = _(this._localId.getLength()).times(function() { return null; });
+    this._table = _(this._localId.getLength()).times(function() { return null; }).value();
     this._powerOfTwos = _(this._localId.getLength()).times(function(i) {
       return localId.addPowerOfTwo(i);
-    });
+    }).value();
   };
 
   FingerTable.prototype = {
     addReference: function(node) {
-      if (_.isNull(node)) {
+      if (!node) {
         throw new Error("Invalid argument.");
       }
 
@@ -2137,7 +2130,7 @@ define('FingerTable',['underscore'], function(_) {
     },
 
     getClosestPrecedingNode: function(key) {
-      if (_.isNull(key)) {
+      if (!key) {
         throw new Error("Invalid argument.");
       }
 
@@ -2152,7 +2145,7 @@ define('FingerTable',['underscore'], function(_) {
     removeReference: function(node) {
       var self = this;
 
-      if (_.isNull(node)) {
+      if (!node) {
         throw new Error("Invalid argument.");
       }
 
@@ -2177,11 +2170,11 @@ define('FingerTable',['underscore'], function(_) {
       var result = [];
       for (var i = 0; i < this._table.length; i++) {
         if (this._table[i]) {
-          if (_.isEmpty(result) || !_.last(result).equals(this._table[i])) {
+          if (result.length === 0 || !_.last(result).equals(this._table[i])) {
             result.push(this._table[i]);
           }
         }
-        if (_.size(result) >= count) {
+        if (result.length >= count) {
           break;
         }
       }
@@ -2189,7 +2182,7 @@ define('FingerTable',['underscore'], function(_) {
     },
 
     containsReference: function(reference) {
-      if (_.isNull(reference)) {
+      if (!reference) {
         throw new Error("Invalid argument.");
       }
 
@@ -2207,7 +2200,7 @@ define('FingerTable',['underscore'], function(_) {
     getStatus: function() {
       var self = this;
       return _.map(this._table, function(node) {
-        return _.isNull(node) ? null : node.toNodeInfo();
+        return !node ? null : node.toNodeInfo();
       });
     },
 
@@ -2216,7 +2209,7 @@ define('FingerTable',['underscore'], function(_) {
 
       return "[FingerTable]\n" + _.chain(this._table)
         .map(function(node, i) {
-          if (_.isNull(node)) {
+          if (!node) {
             return "";
           }
 
@@ -2255,7 +2248,7 @@ define('FingerTable',['underscore'], function(_) {
 
 define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
   var SuccessorList = function(localId, entries, references, config) {
-    if (_.isNull(localId) || _.isNull(entries) || _.isNull(references)) {
+    if (!localId || !entries || !references) {
       throw new Error("Invalid argument.");
     }
 
@@ -2272,7 +2265,7 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
 
   SuccessorList.prototype = {
     addSuccessor: function(node) {
-      if (_.isNull(node)) {
+      if (!node) {
         throw new Error("Invalid argument.");
       }
 
@@ -2280,13 +2273,13 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
         return;
       }
 
-      if (_.size(this._successors) >= this._capacity &&
+      if (this._successors.length >= this._capacity &&
           node.nodeId.isInInterval(_.last(this._successors).nodeId, this._localId)) {
         return;
       }
 
       var inserted = false;
-      for (var i = 0; i < _.size(this._successors); i++) {
+      for (var i = 0; i < this._successors.length; i++) {
         if (node.nodeId.isInInterval(this._localId, this._successors[i].nodeId)) {
           Utils.insert(this._successors, i, node);
           inserted = true;
@@ -2300,11 +2293,11 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
 
       var fromId;
       var predecessor = this._references.getPredecessor();
-      if (!_.isNull(predecessor)) {
+      if (predecessor) {
         fromId = predecessor.nodeId;
       } else {
         var precedingNode = this._references.getClosestPrecedingNode(this._localId);
-        if (!_.isNull(precedingNode)) {
+        if (precedingNode) {
           fromId = precedingNode.nodeId;
         } else {
           fromId = this._localId;
@@ -2314,7 +2307,7 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
       var entriesToReplicate = this._entries.getEntriesInInterval(fromId, toId);
       node.insertReplicas(entriesToReplicate);
 
-      if (_.size(this._successors) > this._capacity) {
+      if (this._successors.length > this._capacity) {
         var nodeToDelete = this._successors.pop();
 
         nodeToDelete.removeReplicas(this._localId, []);
@@ -2324,18 +2317,18 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
     },
 
     getDirectSuccessor: function() {
-      if (_.isEmpty(this._successors)) {
+      if (this._successors.length === 0) {
 	return null;
       }
       return this._successors[0];
     },
 
     getClosestPrecedingNode: function(idToLookup) {
-      if (_.isNull(idToLookup)) {
+      if (!idToLookup) {
         throw new Error("Invalid argument.");
       }
 
-      for (var i = _.size(this._successors) - 1; i >= 0; i--) {
+      for (var i = this._successors.length - 1; i >= 0; i--) {
         if (this._successors[i].nodeId.isInInterval(this._localId, idToLookup)) {
           return this._successors[i];
         }
@@ -2344,13 +2337,13 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
     },
 
     getReferences: function() {
-      return this._successors;
+      return _.clone(this._successors);
     },
 
     removeReference: function(node) {
       var self = this;
 
-      if (_.isNull(node)) {
+      if (!node) {
         throw new Error("Invalid argument.");
       }
 
@@ -2368,7 +2361,7 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
     },
 
     getSize: function() {
-      return _.size(this._successors);
+      return this._successors.length;
     },
 
     getCapacity: function() {
@@ -2376,13 +2369,13 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
     },
 
     containsReference: function(node) {
-      if (_.isNull(node)) {
+      if (!node) {
         throw new Error("Invalid argument.");
       }
 
-      return !_.isUndefined(_.find(this._successors, function(n) {
-        return n.equals(node);
-      }));
+      return _.some(this._successors, function(s) {
+        return s.equals(node);
+      });
     },
 
     getStatus: function() {
@@ -2401,7 +2394,7 @@ define('SuccessorList',['underscore', 'Utils'], function(_, Utils) {
 
 define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(_, FingerTable, SuccessorList) {
   var ReferenceList = function(localId, entries, config) {
-    if (_.isNull(localId) || _.isNull(entries)) {
+    if (!localId || !entries) {
       throw new Error("Invalid arguments.");
     }
 
@@ -2414,7 +2407,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
 
   ReferenceList.prototype = {
     addReference: function(reference) {
-      if (_.isNull(reference)) {
+      if (!reference) {
         throw new Error("Invalid argument.");
       }
 
@@ -2427,7 +2420,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
     },
 
     removeReference: function(reference) {
-      if (_.isNull(reference)) {
+      if (!reference) {
         throw new Error("Invalid argument.");
       }
 
@@ -2450,38 +2443,37 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
     },
 
     getClosestPrecedingNode: function(key) {
-      if (_.isNull(key)) {
+      if (!key) {
         throw new Error("Invalid argument.");
+      }
+
+      if (key.equals(this._localId)) {
+        return null;
       }
 
       var foundNodes = [];
 
       var closestNodeFT = this._fingerTable.getClosestPrecedingNode(key);
-      if (!_.isNull(closestNodeFT)) {
+      if (closestNodeFT) {
         foundNodes.push(closestNodeFT);
       }
       var closestNodeSL = this._successors.getClosestPrecedingNode(key);
-      if (!_.isNull(closestNodeSL)) {
+      if (closestNodeSL) {
         foundNodes.push(closestNodeSL);
       }
-      if (!_.isNull(this._predecessor) &&
+      if (this._predecessor &&
           key.isInInterval(this._predecessor.nodeId, this._localId)) {
         foundNodes.push(this._predecessor);
       }
 
-      foundNodes.sort(function(a, b) {
-          return a.nodeId.compareTo(b.nodeId);
-      });
-      var keyIndex = _.chain(foundNodes)
-        .map(function(node) { return node.nodeId; })
-        .sortedIndex(function(id) { return id.equals(key); })
-        .value();
-      var index = (_.size(foundNodes) + (keyIndex - 1)) % _.size(foundNodes);
-      var closestNode = foundNodes[index];
-      if (_.isNull(closestNode)) {
-        throw new Error("Closest node must not be null.");
+      if (foundNodes.length === 0) {
+        return null;
       }
-      return closestNode;
+
+      return _.chain(foundNodes)
+        .sort(function(a, b) { return key.sub(a.nodeId).compareTo(key.sub(b.nodeId)); })
+        .first()
+        .value();
     },
 
     getPredecessor: function() {
@@ -2489,7 +2481,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
     },
 
     addReferenceAsPredecessor: function(potentialPredecessor) {
-      if (_.isNull(potentialPredecessor)) {
+      if (!potentialPredecessor) {
         throw new Error("Invalid argument.");
       }
 
@@ -2497,16 +2489,16 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
         return;
       }
 
-      if (_.isNull(this._predecessor) ||
+      if (!this._predecessor ||
           potentialPredecessor.nodeId.isInInterval(this._predecessor.nodeId, this._localId)) {
-        this.setPredecessor(potentialPredecessor);
+        this._setPredecessor(potentialPredecessor);
       }
 
       this.addReference(potentialPredecessor);
     },
 
-    setPredecessor: function(potentialPredecessor) {
-      if (_.isNull(potentialPredecessor)) {
+    _setPredecessor: function(potentialPredecessor) {
+      if (!potentialPredecessor) {
         throw new Error("Invalid argument.");
       }
 
@@ -2520,7 +2512,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
 
       var formerPredecessor = this._predecessor;
       this._predecessor = potentialPredecessor;
-      if (!_.isNull(formerPredecessor)) {
+      if (formerPredecessor) {
         this.disconnectIfUnreferenced(formerPredecessor);
 
         var size = this._successors.getSize();
@@ -2538,7 +2530,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
     },
 
     disconnectIfUnreferenced: function(removedReference) {
-      if (_.isNull(removedReference)) {
+      if (!removedReference) {
         throw new Error("Invalid argument.");
       }
 
@@ -2552,7 +2544,7 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
     },
 
     containsReference: function(reference) {
-      if (_.isNull(reference)) {
+      if (!reference) {
         throw new Error("Invalid argurment.");
       }
 
@@ -2565,14 +2557,14 @@ define('ReferenceList',['underscore', 'FingerTable', 'SuccessorList'], function(
       return {
         successors: this._successors.getStatus(),
         fingerTable: this._fingerTable.getStatus(),
-        predecessor: _.isNull(this.getPredecessor()) ? null : this.getPredecessor().toNodeInfo()
+        predecessor: !this.getPredecessor() ? null : this.getPredecessor().toNodeInfo()
       };
     },
 
     toString: function() {
       return [
         this._successors.toString(),
-        "[Predecessor]\n" + (_.isNull(this.getPredecessor()) ? "" : this.getPredecessor().toString()) + "\n",
+        "[Predecessor]\n" + (!this.getPredecessor() ? "" : this.getPredecessor().toString()) + "\n",
         this._fingerTable.toString()
       ].join("\n") + "\n";
     }
@@ -2878,7 +2870,7 @@ define('LocalNode',[
           self._references.addReference(successor);
 
           var _notifyAndCopyEntries = function(node, attempts, callback) {
-            Utils.debug("[join] Trying to notify and copy entries "+ 
+            Utils.debug("[join] Trying to notify and copy entries "+
                         "(remote peer ID:", node.getPeerId(), ", attempts:", attempts, ").");
 
             if (attempts === 0) {
@@ -3025,7 +3017,7 @@ define('LocalNode',[
       });
     },
 
-    
+
     getEntries: function() {
       return this._entries.dump();
     },
@@ -3142,7 +3134,7 @@ define('LocalNode',[
 
       if (!_.isNull(this._references.getPredecessor()) &&
           !entry.id.isInInterval(this._references.getPredecessor().nodeId, this.nodeId)) {
-        this._references.getPredecessor().insertEntry(entry, callback); 
+        this._references.getPredecessor().insertEntry(entry, callback);
         return;
       }
 

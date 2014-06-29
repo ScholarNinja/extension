@@ -360,7 +360,7 @@ function add(doc) {
             dht.put(doc.id, _.omit(doc, 'fulltext'));
 
             Object.keys(fields).forEach(function (key){
-                var keywords = pipeline.run(lunr.tokenizer(doc[key]));
+                var keywords = _.uniq(pipeline.run(lunr.tokenizer(doc[key])));
                 keywords.forEach(function(keyword) {
                     // Add to DHT: [key]keyword: doc.id
                     // E.g. [title]cancer
@@ -540,6 +540,7 @@ function findByFieldAndKeyword(fieldKeyword, callback) {
 
 module.exports.find = find;
 module.exports.add = add;
+
 },{"./dht":2,"async":5,"lunr":10,"underscore":11}],4:[function(require,module,exports){
 'use strict';
 /*jshint -W061 */
