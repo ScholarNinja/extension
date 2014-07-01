@@ -1260,7 +1260,6 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
     this._config = config;
     this._callbacks = callbacks;
     this._waitingTimer = null;
-    this.connect = _.throttle(this.connect, config.connectRateLimit);
 
     var onPeerSetup = _.once(callbacks.onPeerSetup);
 
@@ -1289,7 +1288,7 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
 
       var match = error.message.match(/Could not connect to peer (\w+)/);
       if (match) {
-        if (!self.isWaitingOpeningConnection()) {
+        if (!self.isWaitingForOpeningConnection()) {
           return;
         }
 
@@ -1310,6 +1309,10 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
     connect: function(peerId) {
       var self = this;
 
+      if (this.isWaitingForOpeningConnection()) {
+        throw new Error("Invalid state.");
+      }
+
       var conn = this._peer.connect(peerId);
       if (!conn) {
         var error = new Error("Failed to open connection to " + peerId + ".");
@@ -1318,7 +1321,7 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
       }
 
       this._waitingTimer = setTimeout(function() {
-        if (!self.isWaitingOpeningConnection()) {
+        if (!self.isWaitingForOpeningConnection()) {
           return;
         }
 
@@ -1331,7 +1334,8 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
       conn.on('open', function() {
         Utils.debug("Connection to", conn.peer, "opened.");
 
-        if (!self.isWaitingOpeningConnection()) {
+        if (!self.isWaitingForOpeningConnection()) {
+          console.log("Unexpected opening connection.");
           conn.close();
           return;
         }
@@ -1343,7 +1347,7 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
       });
     },
 
-    isWaitingOpeningConnection: function() {
+    isWaitingForOpeningConnection: function() {
       return !_.isNull(this._waitingTimer);
     },
 
@@ -1359,18 +1363,81 @@ define('PeerAgent',['lodash', 'peerjs', 'Utils'], function(_, Peer, Utils) {
   return PeerAgent;
 });
 
-define('Connection',['lodash', 'Request', 'Response'], function(_, Request, Response) {
-  var Connection = function(conn, callbacks) {
+define('Packet',['lodash', 'cryptojs', 'Utils'], function(_, CryptoJS, Utils) {
+  var Packet = function(id, flags, payload) {
+    if (!Utils.isNonemptyString(id) ||
+        !_.isObject(flags) || !_.isObject(payload)) {
+      throw new Error("Invalid argument.");
+    }
+
+    this.id = id;
+    this.flags = flags;
+    this.payload = payload;
+  };
+
+  Packet.create = function(flags, payload) {
+    return new Packet(Packet._createId(), flags, payload);
+  };
+
+  Packet._createId = function() {
+    return CryptoJS.SHA256(Math.random().toString()).toString();
+  };
+
+  Packet.fromJson = function(json) {
+    if (!_.isObject(json)) {
+      throw new Error("Invalid argument.");
+    }
+    return new Packet(json.id, json.flags, json.payload);
+  };
+
+  Packet.prototype = {
+    toJson: function() {
+      return {
+        id: this.id,
+        flags: this.flags,
+        payload: this.payload,
+      };
+    }
+  };
+
+  return Packet;
+});
+
+define('Connection',[
+  'lodash', 'Request', 'Response', 'Packet', 'Utils'
+], function(_, Request, Response, Packet, Utils) {
+  var Connection = function(conn, callbacks, config) {
     var self = this;
+
+    if (!Utils.isZeroOrPositiveNumber(config.connectionCloseDelay)) {
+      config.connectionCloseDelay = 30000;
+    }
 
     this._conn = conn;
     this._callbacks = callbacks;
+    this._config = config;
+    this._shutdown = false;
 
     this._conn.on('data', function(data) {
-      self._onDataReceived(data);
+      var packet;
+      try {
+        packet = Packet.fromJson(data);
+      } catch (e) {
+        console.error(e);
+        return;
+      }
+
+      if (packet.flags.FIN) {
+        self._shutdown = true;
+        callbacks.receivedFin(self);
+        return;
+      }
+
+      self._onDataReceived(packet.payload);
     });
 
     this._conn.on('close', function() {
+      self._shutdown = true;
       callbacks.closedByRemote(self);
     });
 
@@ -1381,7 +1448,13 @@ define('Connection',['lodash', 'Request', 'Response'], function(_, Request, Resp
 
   Connection.prototype = {
     send: function(requestOrResponse, callback) {
-      this._conn.send(requestOrResponse.toJson());
+      var packet = Packet.create({}, requestOrResponse.toJson());
+
+      if (this.isAvailable()) {
+        this._conn.send(packet.toJson());
+      } else {
+        throw new Error("Connection is not available.");
+      }
     },
 
     _onDataReceived: function(data) {
@@ -1410,8 +1483,19 @@ define('Connection',['lodash', 'Request', 'Response'], function(_, Request, Resp
       this._callbacks.closedByLocal(this);
     },
 
-    destroy: function() {
-      this._conn.close();
+    shutdown: function() {
+      var self = this;
+
+      if (this.isAvailable()) {
+        var packet = Packet.create({FIN: true}, {});
+        this._conn.send(packet.toJson());
+      }
+
+      this._shutdown = true;
+
+      _.delay(function() {
+        self._conn.close();
+      }, this._config.connectionCloseDelay);
     },
 
     getPeerId: function() {
@@ -1419,7 +1503,7 @@ define('Connection',['lodash', 'Request', 'Response'], function(_, Request, Resp
     },
 
     isAvailable: function() {
-      return this._conn.open;
+      return !this._shutdown && this._conn.open;
     }
   };
 
@@ -1430,20 +1514,40 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
   var ConnectionFactory = function(config, nodeFactory, callback) {
     var self = this;
 
-    var requestReceived = function(connection, request) {
-      connection.close();
-      nodeFactory.onRequestReceived(connection.getPeerId(), request);
+    var callbacks = {
+      requestReceived: function(connection, request) {
+        if (connection.isAvailable()) {
+          self._connectionPool.set(connection.getPeerId(), connection);
+        } else {
+          connection.shutdown();
+        }
+
+        nodeFactory.onRequestReceived(connection.getPeerId(), request);
+      },
+      responseReceived: function(connection, response) {
+        if (connection.isAvailable()) {
+          self._connectionPool.set(connection.getPeerId(), connection);
+        } else {
+          connection.shutdown();
+        }
+
+        nodeFactory.onResponseReceived(connection.getPeerId(), response);
+      },
+      closedByRemote: function(connection) {
+        self.removeConnection(connection.getPeerId());
+      },
+      closedByLocal: function(connection) {
+        if (connection.isAvailable()) {
+          self._connectionPool.set(connection.getPeerId(), connection);
+        } else {
+          connection.shutdown();
+        }
+      },
+      receivedFin: function(connection) {
+        callbacks.closedByRemote(connection);
+      },
     };
-    var responseReceived = function(connection, response) {
-      connection.close();
-      nodeFactory.onResponseReceived(connection.getPeerId(), response);
-    };
-    var closedByRemote = function(connection) {
-      self.removeConnection(connection.getPeerId());
-    };
-    var closedByLocal = function(connection) {
-      self._connectionPool.set(connection.getPeerId(), connection);
-    };
+
     this._peerAgent = new PeerAgent(config, {
       onPeerSetup: function(peerId, error) {
         if (error) {
@@ -1459,12 +1563,7 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
           return;
         }
 
-        var connection = new Connection(conn, {
-          requestReceived: requestReceived,
-          responseReceived: responseReceived,
-          closedByRemote: closedByRemote,
-          closedByLocal: closedByLocal
-        });
+        var connection = new Connection(conn, callbacks, config);
 
         self._invokeNextCallback(peerId, connection);
       },
@@ -1476,23 +1575,21 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
 
         var connection;
         var timer = setTimeout(function() {
-          connection.close();
+          connection.shutdown();
         }, config.silentConnectionCloseTimeout);
 
         var clearTimerOnce = _.once(function() { clearTimeout(timer); });
 
-        connection = new Connection(conn, {
+        connection = new Connection(conn, _.defaults({
           requestReceived: function(connection, request) {
             clearTimerOnce();
-            requestReceived(connection, request);
+            callbacks.requestReceived(connection, request);
           },
           responseReceived: function(connection, response) {
             clearTimerOnce();
-            responseReceived(connection, response);
-          },
-          closedByRemote: closedByRemote,
-          closedByLocal: closedByLocal
-        });
+            callbacks.responseReceived(connection, response);
+          }
+        }, callbacks), config);
       },
 
       onPeerClosed: function() {
@@ -1505,14 +1602,11 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
     if (!Utils.isZeroOrPositiveNumber(config.connectionPoolSize)) {
       config.connectionPoolSize = 10;
     }
-    if (!Utils.isZeroOrPositiveNumber(config.connectionCloseDelay)) {
-      config.connectionCloseDelay = 5000;
-    }
     if (!Utils.isZeroOrPositiveNumber(config.silentConnectionCloseTimeout)) {
       config.silentConnectionCloseTimeout = 30000;
     }
     this._connectionPool = new Utils.Cache(config.connectionPoolSize, function(connection) {
-      _.delay(function() { connection.destroy(); }, config.connectionCloseDelay);
+      connection.shutdown();
     });
     this._callbackQueue = new Utils.Queue();
   };
@@ -1546,7 +1640,7 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
         return;
       }
 
-      if (this._peerAgent.isWaitingOpeningConnection()) {
+      if (this._peerAgent.isWaitingForOpeningConnection()) {
         return;
       }
 
@@ -1587,8 +1681,8 @@ define('ConnectionFactory',['lodash', 'PeerAgent', 'Connection', 'Utils'], funct
       if (_.isNull(connection)) {
         return;
       }
-      connection.destroy();
       this._connectionPool.remove(remotePeerId);
+      connection.shutdown();
     },
 
     destroy: function() {
