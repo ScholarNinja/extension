@@ -103,14 +103,14 @@ var config = {
     peer: { // The object to pass to the Peer constructor.
         options: peerJsConfig
     },
-    numberOfEntriesInSuccessorList: 5,
-    connectionPoolSize: 20,
+    numberOfEntriesInSuccessorList: 4,
+    connectionPoolSize: 10,
     connectionOpenTimeout: 10000,
     requestTimeout: 60000,
     debug: false,
     stabilizeTaskInterval: 30000,
-    fixFingerTaskInterval: 30000,
-    checkPredecessorTaskInterval: 30000,
+    fixFingerTaskInterval: 31000,
+    checkPredecessorTaskInterval: 32000,
     networkCheckInterval: 30000
 };
 
