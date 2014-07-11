@@ -62,39 +62,17 @@ var _ = require('underscore');
 var $ = require('jquery');
 var eliminatedPeers = [];
 var chord;
-var networkChecker;
 
 var peerJsConfig = {
     host: 'scholar.ninja',
-    port: 9002,
+    //host: 'localhost',
+    port: 9003,
     debug: 1,
     config: {
         iceServers: [
-            // Using public STUN for now.
+            // Using public STUN and our own at scholar.ninja
             { url: 'stun:stun.l.google.com:19302' },
-            { url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'},
-            // { url: 'turn:scholar.ninja'}
-            // { url: 'stun:stun01.sipphone.com' },
-            // { url: 'stun:stun.ekiga.net' },
-            // { url: 'stun:stun.fwdnet.net' },
-            // { url: 'stun:stun.ideasip.com' },
-            // { url: 'stun:stun.iptel.org' },
-            // { url: 'stun:stun.rixtelecom.se'},
-            // { url: 'stun:stun.schlund.de'},
-            // { url: 'stun:stun1.l.google.com:19302'},
-            // { url: 'stun:stun2.l.google.com:19302'},
-            // { url: 'stun:stun3.l.google.com:19302'},
-            // { url: 'stun:stun4.l.google.com:19302'},
-            // { url: 'stun:stunserver.org'},
-            // { url: 'stun:stun.softjoys.com'},
-            // { url: 'stun:stun.voiparound.com'},
-            // { url: 'stun:stun.voipbuster.com'},
-            // { url: 'stun:stun.voipstunt.com'},
-            // { url: 'stun:stun.voxgratia.org'},
-            // { url: 'stun:stun.xten.com'},
-            // { url: 'turn:numb.viagenie.ca', credential: 'muazkh', username: 'webrtc@live.com'},
-            // { url: 'turn:192.158.29.39:3478?transport=udp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'},
-            // { url: 'turn:192.158.29.39:3478?transport=tcp', credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=', username: '28224511:1379330808'}
+            { url: 'turn:scholar@scholar.ninja:3478', credential: 'ninja'}
         ]
     }
 };
@@ -109,9 +87,8 @@ var config = {
     requestTimeout: 60000,
     debug: false,
     stabilizeTaskInterval: 30000,
-    fixFingerTaskInterval: 31000,
-    checkPredecessorTaskInterval: 32000,
-    networkCheckInterval: 30000
+    fixFingerTaskInterval: 30000,
+    checkPredecessorTaskInterval: 30000,
 };
 
 // Use the existing peer ID, if we have it.
@@ -123,43 +100,12 @@ chrome.storage.local.get('peer', function (obj) {
 
 chord = new Chord(config);
 
-var networkCheck = function () {
-    if(!navigator.onLine) {
-        // Still attempt to leave
-        chord.leave();
-        console.log('You are offline.');
-    } else {
-        if(!chord._localNode) {
-            console.log('Rejoining the network.');
-            createOrJoin();
-        } else {
-            // Saying hello to server
-            chord._localNode.
-                _nodeFactory._connectionFactory._peerAgent._peer.
-                socket.send({type: 'HELLO'});
-
-            console.log('HELLO');
-        }
-    }
-};
-
 var updatePeerId = function(peerId) {
-    // Periodically check connection to PeerJS
-
-    if(networkChecker) {
-        clearInterval(networkChecker);
-    }
-
-    networkChecker = setInterval(networkCheck, config.networkCheckInterval);
-
     chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.on('error', function(error) {
         console.log(error);
         // Ignore other errors, are handled elswhere.
-        if(error.message === 'Server deleted peer') {
+        if(error.type === 'network') {
             chord.leave();
-            if(networkChecker) {
-                clearInterval(networkChecker);
-            }
             createOrJoin();
         }
     });

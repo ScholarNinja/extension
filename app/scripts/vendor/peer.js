@@ -596,12 +596,12 @@ EventEmitter.prototype.addListener = function(type, listener, scope, once) {
   if ('function' !== typeof listener) {
     throw new Error('addListener only takes instances of Function');
   }
-
+  
   // To avoid recursion in the case that type == "newListeners"! Before
   // adding it to the listeners, first emit "newListeners".
   this.emit('newListener', type, typeof listener.listener === 'function' ?
             listener.listener : listener);
-
+            
   if (!this._events[type]) {
     // Optimize the case of one listener. Don't need the extra array object.
     this._events[type] = listener;
@@ -1114,7 +1114,7 @@ var util = {
         err = true;
       }
     }
-    err ? console.error.apply(console, copy) : console.log.apply(console, copy);
+    err ? console.error.apply(console, copy) : console.log.apply(console, copy);  
   },
   //
 
@@ -1443,7 +1443,7 @@ function Peer(id, options) {
 
   // States.
   this.destroyed = false; // Connections have been killed
-  this.disconnected = false; // Connection to PeerServer killed manually but P2P connections still active
+  this.disconnected = false; // Connection to PeerServer killed but P2P connections still active
   this.open = false; // Sockets and such are not yet open.
   //
 
@@ -1452,24 +1452,8 @@ function Peer(id, options) {
   this._lostMessages = {}; // src => [list of messages]
   //
 
-  // Initialize the 'socket' (which is actually a mix of XHR streaming and
-  // websockets.)
-  var self = this;
-  this.socket = new Socket(this.options.secure, this.options.host, this.options.port, this.options.path, this.options.key);
-  this.socket.on('message', function(data) {
-    self._handleMessage(data);
-  });
-  this.socket.on('error', function(error) {
-    self._abort('socket-error', error);
-  });
-  this.socket.on('close', function() {
-    if (!self.disconnected) { // If we haven't explicitly disconnected, emit error.
-      self._abort('socket-closed', 'Underlying socket is already closed.');
-    }
-  });
-  //
-
-  // Start the connections
+  // Start the server connection
+  this._initializeServerConnection();
   if (id) {
     this._initialize(id);
   } else {
@@ -1479,6 +1463,32 @@ function Peer(id, options) {
 };
 
 util.inherits(Peer, EventEmitter);
+
+// Initialize the 'socket' (which is actually a mix of XHR streaming and
+// websockets.)
+Peer.prototype._initializeServerConnection = function() {
+  var self = this;
+  this.socket = new Socket(this.options.secure, this.options.host, this.options.port, this.options.path, this.options.key);
+  this.socket.on('message', function(data) {
+    self._handleMessage(data);
+  });
+  this.socket.on('error', function(error) {
+    self._abort('socket-error', error);
+  });
+  this.socket.on('disconnected', function() {
+    // If we haven't explicitly disconnected, emit error and disconnect.
+    if (!self.disconnected) {
+      self.emitError('network', 'Lost connection to server.')
+      self.disconnect();
+    }
+  });
+  this.socket.on('close', function() {
+    // If we haven't explicitly disconnected, emit error.
+    if (!self.disconnected) {
+      self._abort('socket-closed', 'Underlying socket is already closed.');
+    }
+  });
+};
 
 /** Get a unique ID from the server via XHR. */
 Peer.prototype._retrieveId = function(cb) {
@@ -1517,7 +1527,6 @@ Peer.prototype._retrieveId = function(cb) {
 
 /** Initialize a connection with the server. */
 Peer.prototype._initialize = function(id) {
-  var self = this;
   this.id = id;
   this.socket.start(this.id, this.options.token);
 }
@@ -1550,7 +1559,7 @@ Peer.prototype._handleMessage = function(message) {
       break;
 
     case 'EXPIRE': // The offer sent to a peer has expired without response.
-      this.emit('error', new Error('Could not connect to peer ' + peer));
+      this.emitError('peer-unavailable', 'Could not connect to peer ' + peer);
       break;
     case 'OFFER': // we should consider switching this to CALL/CONNECT, but this is the least breaking option.
       var connectionId = payload.connectionId;
@@ -1640,8 +1649,9 @@ Peer.prototype.connect = function(peer, options) {
   if (this.disconnected) {
     util.warn('You cannot connect to a new Peer because you called '
         + '.disconnect() on this Peer and ended your connection with the'
-        + ' server. You can create a new Peer to reconnect.');
-    this.emit('error', new Error('Cannot connect to new Peer after disconnecting from server.'));
+        + ' server. You can create a new Peer to reconnect, or call reconnect'
+        + ' on this peer if you believe its ID to still be available.');
+    this.emitError('disconnected', 'Cannot connect to new Peer after disconnecting from server.');
     return;
   }
   var connection = new DataConnection(peer, this, options);
@@ -1658,7 +1668,7 @@ Peer.prototype.call = function(peer, stream, options) {
     util.warn('You cannot connect to a new Peer because you called '
         + '.disconnect() on this Peer and ended your connection with the'
         + ' server. You can create a new Peer to reconnect.');
-    this.emit('error', new Error('Cannot connect to new Peer after disconnecting from server.'));
+    this.emitError('disconnected', 'Cannot connect to new Peer after disconnecting from server.');
     return;
   }
   if (!stream) {
@@ -1701,12 +1711,28 @@ Peer.prototype._delayedAbort = function(type, message) {
   });
 }
 
-/** Destroys the Peer and emits an error message. */
+/**
+ * Destroys the Peer and emits an error message.
+ * The Peer is not destroyed if it's in a disconnected state, in which case
+ * it retains its disconnected state and its existing connections.
+ */
 Peer.prototype._abort = function(type, message) {
-  util.error('Aborting. Error:', message);
-  var err = new Error(message);
+  util.error('Aborting!');
+  if (!this._lastServerId) {
+    this.destroy();
+  } else {
+    this.disconnect();
+  }
+  this.emitError(type, message);
+};
+
+/** Emits a typed error message. */
+Peer.prototype.emitError = function(type, err) {
+  util.error('Error:', err);
+  if (typeof err === 'string') {
+    err = new Error(err);
+  }
   err.type = type;
-  this.destroy();
   this.emit('error', err);
 };
 
@@ -1759,10 +1785,29 @@ Peer.prototype.disconnect = function() {
       if (self.socket) {
         self.socket.close();
       }
+      self.emit('disconnected', self.id);
+      self._lastServerId = self.id;
       self.id = null;
     }
   });
 }
+
+/** Attempts to reconnect with the same ID. */
+Peer.prototype.reconnect = function() {
+  if (this.disconnected && !this.destroyed) {
+    util.log('Attempting reconnection to server with ID ' + this._lastServerId);
+    this.disconnected = false;
+    this._initializeServerConnection();
+    this._initialize(this._lastServerId);
+  } else if (this.destroyed) {
+    throw new Error('This peer cannot reconnect to the server. It has already been destroyed.');
+  } else if (!this.disconnected && !this.open) {
+    // Do nothing. We're still connecting the first time.
+    util.error('In a hurry? We\'re still trying to make the initial connection!');
+  } else {
+    throw new Error('Peer ' + this.id + ' cannot reconnect because it is not disconnected from the server!');
+  }
+};
 
 /**
  * Get a list of available peer IDs. If you're running your own server, you'll
@@ -2033,11 +2078,6 @@ DataConnection.prototype._trySend = function(msg) {
 // Try to send the first message in the buffer.
 DataConnection.prototype._tryBuffer = function() {
   if (this._buffer.length === 0) {
-    return;
-  }
-
-  if (!this.open) {
-    this.emit('error', new Error('Connection is not open.'));
     return;
   }
 
@@ -2390,11 +2430,11 @@ Negotiator._makeOffer = function(connection) {
         dst: connection.peer
       });
     }, function(err) {
-      connection.provider.emit('error', err);
+      connection.provider.emitError('webrtc', err);
       util.log('Failed to setLocalDescription, ', err);
     });
   }, function(err) {
-    connection.provider.emit('error', err);
+    connection.provider.emitError('webrtc', err);
     util.log('Failed to createOffer, ', err);
   }, connection.options.constraints);
 }
@@ -2422,11 +2462,11 @@ Negotiator._makeAnswer = function(connection) {
         dst: connection.peer
       });
     }, function(err) {
-      connection.provider.emit('error', err);
+      connection.provider.emitError('webrtc', err);
       util.log('Failed to setLocalDescription, ', err);
     });
   }, function(err) {
-    connection.provider.emit('error', err);
+    connection.provider.emitError('webrtc', err);
     util.log('Failed to create answer, ', err);
   });
 }
@@ -2444,7 +2484,7 @@ Negotiator.handleSDP = function(type, connection, sdp) {
       Negotiator._makeAnswer(connection);
     }
   }, function(err) {
-    connection.provider.emit('error', err);
+    connection.provider.emitError('webrtc', err);
     util.log('Failed to setRemoteDescription, ', err);
   });
 }
@@ -2486,7 +2526,7 @@ Socket.prototype.start = function(id, token) {
   this.id = id;
 
   this._httpUrl += '/' + id + '/' + token;
-  this._wsUrl += '&id='+id+'&token='+token;
+  this._wsUrl += '&id=' + id + '&token=' + token;
 
   this._startXhrStream();
   this._startWebSocket();
@@ -2504,14 +2544,19 @@ Socket.prototype._startWebSocket = function(id) {
   this._socket = new WebSocket(this._wsUrl);
 
   this._socket.onmessage = function(event) {
-    var data;
     try {
-      data = JSON.parse(event.data);
+      var data = JSON.parse(event.data);
+      self.emit('message', data);
     } catch(e) {
       util.log('Invalid server message', event.data);
       return;
     }
-    self.emit('message', data);
+  };
+
+  this._socket.onclose = function(event) {
+    util.log('Socket closed.');
+    self.disconnected = true;
+    self.emit('disconnected');
   };
 
   // Take care of the queue of connections if necessary and make sure Peer knows
@@ -2541,9 +2586,13 @@ Socket.prototype._startXhrStream = function(n) {
       if (this.readyState == 2 && this.old) {
         this.old.abort();
         delete this.old;
-      }
-      if (this.readyState > 2 && this.status == 200 && this.responseText) {
+      } else if (this.readyState > 2 && this.status === 200 && this.responseText) {
         self._handleStream(this);
+      } else if (this.status !== 200) {
+        // If we get a different status code, likely something went wrong.
+        // Stop streaming.
+        clearTimeout(self._timeout);
+        self.emit('disconnected');
       }
     };
     this._http.send(null);
@@ -2646,17 +2695,9 @@ Socket.prototype.send = function(data) {
   } else {
     var http = new XMLHttpRequest();
     var url = this._httpUrl + '/' + data.type.toLowerCase();
-    var self = this;
     http.open('post', url, true);
     http.setRequestHeader('Content-Type', 'application/json');
     http.send(message);
-    http.onreadystatechange = function() {
-       if (this.readyState != 4)  { return; }
-       if (this.status === 404)  {
-         self.emit('error', 'Server deleted peer')
-         return;
-       }
-     };
   }
 }
 
