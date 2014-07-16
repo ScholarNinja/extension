@@ -2,10 +2,38 @@
 
 var _ = require('underscore');
 var async = require('async');
+var dht = require('./dht');
+
+function restoreDocuments() {
+    chrome.storage.local.get('documents', function (obj) {
+        if(obj.documents === undefined) {
+            documents = {};
+        } else {
+            /*
+               Try to fill in the blanks in the DHT too
+               Shouldn't be necessary as we save all of entries,
+               but it looks like keeping a local cache of all documents
+               can be beneficial if churn rate is high and entries get lost
+            */
+            documents = obj.documents;
+            _.each(documents, function(document) {
+                add(document);
+            });
+        }
+    });
+}
+
+function storeDocuments() {
+    chrome.storage.local.set({documents: documents});
+}
+
+function addDocumentToCache(ref, document) {
+    documents[ref] = document;
+    storeDocuments();
+}
 
 // Join the DHT network
-var dht = require('./dht');
-dht.createOrJoin();
+dht.createOrJoin(restoreDocuments);
 
 // Prepare the pipeline
 var lunr = require('lunr');
@@ -14,6 +42,7 @@ pipeline.add(lunr.trimmer);
 pipeline.add(lunr.stemmer);
 pipeline.add(lunr.stopWordFilter);
 
+// Local cache of documents
 var documents;
 
 // Fields and boosts
@@ -24,24 +53,6 @@ var fields = {
     journal: 2,
     fulltext: 1
 };
-
-function restore() {
-    chrome.storage.local.get('documents', function (obj) {
-        if(obj.documents === undefined) {
-            documents = {};
-        } else {
-            documents = obj.documents;
-        }
-    });
-
-    // Also serialize DHT entries
-}
-
-restore();
-
-function store(documents) {
-    chrome.storage.local.set(documents);
-}
 
 /* Document example
 
@@ -67,17 +78,14 @@ function get(ref, callback) {
     if(documents[ref]) {
         callback(null, documents[ref]);
     } else {
-        dht.get(ref, function(entries, error) {
+        dht.retrieve(ref, function(entries, error) {
             if(error) {
                 callback(error);
             } else if(entries.length === 0) {
-                callback({
-                    type: 'no-exist',
-                    message: 'Document ' + ref + ' does not exist on the network.'
-                });
+                console.log('Document', ref, 'does not exist on the network.');
+                callback(null, undefined);
             } else {
-                // Cache locally
-                documents[ref] = entries[0];
+                addDocumentToCache(ref, entries[0]);
                 callback(null, entries[0]);
             }
         });
@@ -92,7 +100,7 @@ function add(doc) {
             // Save document locally and to DHT, without the full text.
             documents[doc.id] = doc;
             console.log('Added document', doc.id, 'to index.');
-            dht.put(doc.id, _.omit(doc, 'fulltext'));
+            dht.insert(doc.id, _.omit(doc, 'fulltext'));
 
             Object.keys(fields).forEach(function (key){
                 var keywords = _.uniq(pipeline.run(lunr.tokenizer(doc[key])));
@@ -100,19 +108,18 @@ function add(doc) {
                     // Add to DHT: [key]keyword: doc.id
                     // E.g. [title]cancer
                     var dhtKey = '[' + key + ']' + keyword;
-                    dht.put(dhtKey, doc.id);
+                    dht.insert(dhtKey, doc.id);
                 });
             });
-
-            // Cache node's entries locally
 
             doc.links.forEach(function(link) {
                 // Add to DHT [URL]link: doc.id
                 var dhtKey = '[URL]' + link;
-                dht.put(dhtKey, doc.id);
+                dht.insert(dhtKey, doc.id);
             });
+
             // Update documents cache
-            store(documents);
+            storeDocuments();
         } else {
             console.log('Document is already indexed');
         }
@@ -120,6 +127,8 @@ function add(doc) {
 }
 
 // Scoring example
+
+// Boosts:
 // title: 10,
 // authors: 3,
 // abstract: 2,
@@ -201,11 +210,11 @@ function find(query, port) {
             });
 
             async.map(matchingDocuments, get.bind(this), function (error, result) {
-                if(error && error.type !== 'no-exist') {
+                if(error) {
                     response = {status: 'FAIL'};
                 } else {
                     // An array of documents
-                    response.results = result;
+                    response.results = _.compact(result);
                 }
                 port.postMessage(response);
             });
@@ -261,7 +270,7 @@ function findByFieldAndKeyword(fieldKeyword, callback) {
     var field = _.keys(fieldKeyword)[0];
     var keyword = fieldKeyword[field];
 
-    dht.get('[' + field + ']' + keyword, function(entries, error) {
+    dht.retrieve('[' + field + ']' + keyword, function(entries, error) {
         if (error) {
             console.log('Failed to retrieve entries:', error);
             callback(error);
