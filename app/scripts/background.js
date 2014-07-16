@@ -50,6 +50,6 @@ chrome.tabs.onHighlighted.addListener(function() {
     getSettings();
 });
 
-// chrome.windows.onFocusChanged.addListener(function() {
-//     getSettings();
-// });
+chrome.windows.onFocusChanged.addListener(function() {
+    getSettings();
+});
