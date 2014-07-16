@@ -4,10 +4,12 @@ var _ = require('underscore');
 var $ = require('jquery');
 var eliminatedPeers = [];
 var chord;
+var onSuccess;
+var reloadInterval;
 
 var peerJsConfig = {
     host: 'scholar.ninja',
-    //host: 'localhost',
+    // host: 'localhost',
     port: 9003,
     debug: 1,
     config: {
@@ -26,7 +28,7 @@ var config = {
     numberOfEntriesInSuccessorList: 4,
     connectionPoolSize: 10,
     connectionOpenTimeout: 10000,
-    requestTimeout: 60000,
+    requestTimeout: 120000,
     debug: false,
     stabilizeTaskInterval: 30000,
     fixFingerTaskInterval: 30000,
@@ -47,8 +49,7 @@ var updatePeerId = function(peerId) {
         console.log(error);
         // Ignore other errors, are handled elswhere.
         if(error.type === 'network') {
-            chord.leave();
-            createOrJoin();
+            chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.reconnect();
         }
     });
 
@@ -60,6 +61,20 @@ var updatePeerId = function(peerId) {
             chord.setEntries(obj.entries);
         }
     });
+
+    // Let others know we've joined the network
+    if(onSuccess) {
+        onSuccess(peerId);
+    }
+
+    // Temporary fix for Chrome bug: https://code.google.com/p/chromium/issues/detail?id=392651
+    if(reloadInterval) {
+        clearInterval(reloadInterval);
+    }
+    reloadInterval = setInterval(function() {
+        chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.disconnect();
+        window.location.reload();
+    }, 60*60*1000);
 };
 
 var errorHandler = function(error) {
@@ -68,7 +83,8 @@ var errorHandler = function(error) {
     }
 };
 
-var createOrJoin = function() {
+var createOrJoin = function(onSuccessCallback) {
+    onSuccess = onSuccessCallback;
     var peers = [];
     $.get(
         'http://' + peerJsConfig.host + ':9001/',
@@ -121,7 +137,7 @@ var join = function(myPeerId, error) {
             // Example: "ID `w34ru68zauz93sor` is taken"
             // Usually the taken ID will be a stale node (us from the past)
             delete config.peer.id;
-        } else {
+        } else if (error.type !== 'network') {
             // Examples:
             // "Failed to open connection to 8brhes5lytmd9529."
             // "FIND_SUCCESSOR request to aoeupaxej1rr7ldi timed out."
@@ -135,17 +151,13 @@ var join = function(myPeerId, error) {
     }
 };
 
-window.onunload = window.onbeforeunload = function() {
-    chord.leave();
-};
-
 chord.onentriesinserted = _.debounce(function() {
     console.log('Storing entries locally.');
     chrome.storage.local.set({entries: chord.getEntries()});
 }, 10000);
 
 module.exports = chord;
-module.exports.get = chord.retrieve;
-module.exports.put = chord.insert;
+module.exports.retrieve = chord.retrieve;
+module.exports.insert = chord.insert;
 module.exports.remove = chord.remove;
 module.exports.createOrJoin = createOrJoin;
