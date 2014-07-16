@@ -51,9 +51,9 @@ chrome.tabs.onHighlighted.addListener(function() {
     getSettings();
 });
 
-// chrome.windows.onFocusChanged.addListener(function() {
-//     getSettings();
-// });
+chrome.windows.onFocusChanged.addListener(function() {
+    getSettings();
+});
 
 },{"./document":3,"./extractor":4}],2:[function(require,module,exports){
 'use strict';
@@ -62,10 +62,12 @@ var _ = require('underscore');
 var $ = require('jquery');
 var eliminatedPeers = [];
 var chord;
+var onSuccess;
+var reloadInterval;
 
 var peerJsConfig = {
     host: 'scholar.ninja',
-    //host: 'localhost',
+    // host: 'localhost',
     port: 9003,
     debug: 1,
     config: {
@@ -84,7 +86,7 @@ var config = {
     numberOfEntriesInSuccessorList: 4,
     connectionPoolSize: 10,
     connectionOpenTimeout: 10000,
-    requestTimeout: 60000,
+    requestTimeout: 120000,
     debug: false,
     stabilizeTaskInterval: 30000,
     fixFingerTaskInterval: 30000,
@@ -105,8 +107,7 @@ var updatePeerId = function(peerId) {
         console.log(error);
         // Ignore other errors, are handled elswhere.
         if(error.type === 'network') {
-            chord.leave();
-            createOrJoin();
+            chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.reconnect();
         }
     });
 
@@ -118,6 +119,20 @@ var updatePeerId = function(peerId) {
             chord.setEntries(obj.entries);
         }
     });
+
+    // Let others know we've joined the network
+    if(onSuccess) {
+        onSuccess(peerId);
+    }
+
+    // Temporary fix for Chrome bug: https://code.google.com/p/chromium/issues/detail?id=392651
+    if(reloadInterval) {
+        clearInterval(reloadInterval);
+    }
+    reloadInterval = setInterval(function() {
+        chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.disconnect();
+        window.location.reload();
+    }, 60*60*1000);
 };
 
 var errorHandler = function(error) {
@@ -126,7 +141,8 @@ var errorHandler = function(error) {
     }
 };
 
-var createOrJoin = function() {
+var createOrJoin = function(onSuccessCallback) {
+    onSuccess = onSuccessCallback;
     var peers = [];
     $.get(
         'http://' + peerJsConfig.host + ':9001/',
@@ -179,7 +195,7 @@ var join = function(myPeerId, error) {
             // Example: "ID `w34ru68zauz93sor` is taken"
             // Usually the taken ID will be a stale node (us from the past)
             delete config.peer.id;
-        } else {
+        } else if (error.type !== 'network') {
             // Examples:
             // "Failed to open connection to 8brhes5lytmd9529."
             // "FIND_SUCCESSOR request to aoeupaxej1rr7ldi timed out."
@@ -193,18 +209,14 @@ var join = function(myPeerId, error) {
     }
 };
 
-window.onunload = window.onbeforeunload = function() {
-    chord.leave();
-};
-
 chord.onentriesinserted = _.debounce(function() {
     console.log('Storing entries locally.');
     chrome.storage.local.set({entries: chord.getEntries()});
 }, 10000);
 
 module.exports = chord;
-module.exports.get = chord.retrieve;
-module.exports.put = chord.insert;
+module.exports.retrieve = chord.retrieve;
+module.exports.insert = chord.insert;
 module.exports.remove = chord.remove;
 module.exports.createOrJoin = createOrJoin;
 
@@ -213,10 +225,38 @@ module.exports.createOrJoin = createOrJoin;
 
 var _ = require('underscore');
 var async = require('async');
+var dht = require('./dht');
+
+function restoreDocuments() {
+    chrome.storage.local.get('documents', function (obj) {
+        if(obj.documents === undefined) {
+            documents = {};
+        } else {
+            /*
+               Try to fill in the blanks in the DHT too
+               Shouldn't be necessary as we save all of entries,
+               but it looks like keeping a local cache of all documents
+               can be beneficial if churn rate is high and entries get lost
+            */
+            documents = obj.documents;
+            _.each(documents, function(document) {
+                add(document);
+            });
+        }
+    });
+}
+
+function storeDocuments() {
+    chrome.storage.local.set({documents: documents});
+}
+
+function addDocumentToCache(ref, document) {
+    documents[ref] = document;
+    storeDocuments();
+}
 
 // Join the DHT network
-var dht = require('./dht');
-dht.createOrJoin();
+dht.createOrJoin(restoreDocuments);
 
 // Prepare the pipeline
 var lunr = require('lunr');
@@ -225,6 +265,7 @@ pipeline.add(lunr.trimmer);
 pipeline.add(lunr.stemmer);
 pipeline.add(lunr.stopWordFilter);
 
+// Local cache of documents
 var documents;
 
 // Fields and boosts
@@ -235,24 +276,6 @@ var fields = {
     journal: 2,
     fulltext: 1
 };
-
-function restore() {
-    chrome.storage.local.get('documents', function (obj) {
-        if(obj.documents === undefined) {
-            documents = {};
-        } else {
-            documents = obj.documents;
-        }
-    });
-
-    // Also serialize DHT entries
-}
-
-restore();
-
-function store(documents) {
-    chrome.storage.local.set(documents);
-}
 
 /* Document example
 
@@ -278,17 +301,14 @@ function get(ref, callback) {
     if(documents[ref]) {
         callback(null, documents[ref]);
     } else {
-        dht.get(ref, function(entries, error) {
+        dht.retrieve(ref, function(entries, error) {
             if(error) {
                 callback(error);
             } else if(entries.length === 0) {
-                callback({
-                    type: 'no-exist',
-                    message: 'Document ' + ref + ' does not exist on the network.'
-                });
+                console.log('Document', ref, 'does not exist on the network.');
+                callback(null, undefined);
             } else {
-                // Cache locally
-                documents[ref] = entries[0];
+                addDocumentToCache(ref, entries[0]);
                 callback(null, entries[0]);
             }
         });
@@ -303,7 +323,7 @@ function add(doc) {
             // Save document locally and to DHT, without the full text.
             documents[doc.id] = doc;
             console.log('Added document', doc.id, 'to index.');
-            dht.put(doc.id, _.omit(doc, 'fulltext'));
+            dht.insert(doc.id, _.omit(doc, 'fulltext'));
 
             Object.keys(fields).forEach(function (key){
                 var keywords = _.uniq(pipeline.run(lunr.tokenizer(doc[key])));
@@ -311,19 +331,18 @@ function add(doc) {
                     // Add to DHT: [key]keyword: doc.id
                     // E.g. [title]cancer
                     var dhtKey = '[' + key + ']' + keyword;
-                    dht.put(dhtKey, doc.id);
+                    dht.insert(dhtKey, doc.id);
                 });
             });
-
-            // Cache node's entries locally
 
             doc.links.forEach(function(link) {
                 // Add to DHT [URL]link: doc.id
                 var dhtKey = '[URL]' + link;
-                dht.put(dhtKey, doc.id);
+                dht.insert(dhtKey, doc.id);
             });
+
             // Update documents cache
-            store(documents);
+            storeDocuments();
         } else {
             console.log('Document is already indexed');
         }
@@ -331,6 +350,8 @@ function add(doc) {
 }
 
 // Scoring example
+
+// Boosts:
 // title: 10,
 // authors: 3,
 // abstract: 2,
@@ -412,11 +433,11 @@ function find(query, port) {
             });
 
             async.map(matchingDocuments, get.bind(this), function (error, result) {
-                if(error && error.type !== 'no-exist') {
+                if(error) {
                     response = {status: 'FAIL'};
                 } else {
                     // An array of documents
-                    response.results = result;
+                    response.results = _.compact(result);
                 }
                 port.postMessage(response);
             });
@@ -472,7 +493,7 @@ function findByFieldAndKeyword(fieldKeyword, callback) {
     var field = _.keys(fieldKeyword)[0];
     var keyword = fieldKeyword[field];
 
-    dht.get('[' + field + ']' + keyword, function(entries, error) {
+    dht.retrieve('[' + field + ']' + keyword, function(entries, error) {
         if (error) {
             console.log('Failed to retrieve entries:', error);
             callback(error);
