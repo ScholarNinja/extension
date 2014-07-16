@@ -596,12 +596,12 @@ EventEmitter.prototype.addListener = function(type, listener, scope, once) {
   if ('function' !== typeof listener) {
     throw new Error('addListener only takes instances of Function');
   }
-  
+
   // To avoid recursion in the case that type == "newListeners"! Before
   // adding it to the listeners, first emit "newListeners".
   this.emit('newListener', type, typeof listener.listener === 'function' ?
             listener.listener : listener);
-            
+
   if (!this._events[type]) {
     // Optimize the case of one listener. Don't need the extra array object.
     this._events[type] = listener;
@@ -1114,7 +1114,7 @@ var util = {
         err = true;
       }
     }
-    err ? console.error.apply(console, copy) : console.log.apply(console, copy);  
+    err ? console.error.apply(console, copy) : console.log.apply(console, copy);
   },
   //
 
@@ -2066,9 +2066,13 @@ DataConnection.prototype._trySend = function(msg) {
 
     var self = this;
     setTimeout(function() {
-      // Try again.
-      self._buffering = false;
-      self._tryBuffer();
+      if(self.open === false) {
+        console.log('DataChannel is closed.')
+      } else {
+        // Try again.
+        self._buffering = false;
+        self._tryBuffer();
+      }
     }, 100);
     return false;
   }
