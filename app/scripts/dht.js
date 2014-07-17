@@ -49,6 +49,7 @@ var updatePeerId = function(peerId) {
         console.log(error);
         // Ignore other errors, are handled elswhere.
         if(error.type === 'network') {
+            chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.disconnect();
             chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.reconnect();
         }
     });
@@ -87,7 +88,7 @@ var createOrJoin = function(onSuccessCallback) {
     onSuccess = onSuccessCallback;
     var peers = [];
     $.get(
-        'http://' + peerJsConfig.host + ':9001/',
+        'http://' + peerJsConfig.host + ':9004/',
         function(data) {
             // Array of peers on DHT network
             data.map(function(p) {
