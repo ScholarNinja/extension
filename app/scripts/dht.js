@@ -64,7 +64,7 @@ var updatePeerId = function(peerId) {
         clearInterval(reloadInterval);
     }
     reloadInterval = setInterval(function() {
-        chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.disconnect();
+        chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.destroy();
         window.location.reload();
     }, 60*60*1000);
 };
