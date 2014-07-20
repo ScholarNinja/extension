@@ -103,15 +103,6 @@ chrome.storage.local.get('peer', function (obj) {
 chord = new Chord(config);
 
 var updatePeerId = function(peerId) {
-    chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.on('error', function(error) {
-        console.log(error);
-        // Ignore other errors, are handled elswhere.
-        if(error.type === 'network') {
-            chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.disconnect();
-            chord._localNode._nodeFactory._connectionFactory._peerAgent._peer.reconnect();
-        }
-    });
-
     console.log('My peer ID: ' + peerId);
     chrome.storage.local.set({peer: {id: peerId}});
     // Restore the DHT entries, if we have them.
@@ -162,7 +153,7 @@ var createOrJoin = function(onSuccessCallback) {
                 }
             });
 
-            var randomPeer = _.sample(peers);
+            var randomPeer = _.sample(_.compact(peers));
             if (randomPeer) {
                 // Join an existing chord network
                 console.log('Joining', randomPeer);

@@ -1,20 +1,601 @@
 !function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.Chord=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
+function Cache(capacity, callbackOnCacheOut) {
+  this._items = {};
+  this._useHistory = [];
+  this._capacity = capacity;
+  this._callbackOnCacheOut = callbackOnCacheOut;
+};
+
+Cache.prototype = {
+  get: function(key, silent) {
+    if (!this._items[key]) {
+      return undefined;
+    }
+    if (!silent) {
+      this._updateUseHistory(key);
+    }
+    return this._items[key];
+  },
+
+  set: function(key, item) {
+    this._items[key] = item;
+    this._updateUseHistory(key);
+    if (Object.keys(this._items).length > this._capacity) {
+      var keysToRemove = this._useHistory.slice(this._capacity);
+      this._useHistory = this._useHistory.slice(0, this._capacity);
+      for (var i = 0; i < keysToRemove.length; i++) {
+        var itemToRemove = this._items[keysToRemove[i]];
+        delete this._items[keysToRemove[i]];
+        this._callbackOnCacheOut(itemToRemove);
+      };
+    }
+  },
+
+  remove: function(key) {
+    if (!this._items[key]) {
+      return;
+    }
+    var newUseHistory = [];
+    for (var i = 0; i < this._useHistory.length; i++) {
+      if (this._useHistory[i] !== key) {
+        newUseHistory.push(this._useHistory[i]);
+      }
+    }
+    this._useHistory = newUseHistory;
+    var itemToRemove = this._items[key];
+    delete this._items[key];
+    this._callbackOnCacheOut(itemToRemove);
+  },
+
+  clear: function() {
+    var keys = Object.keys(this._items);
+    for (var i = 0; i < keys.length; i++) {
+      this._callbackOnCacheOut(this._items[keys[i]]);
+    }
+    this._items = {};
+    this._useHistory = [];
+  },
+
+  touch: function(key) {
+    if (this._items[key]) {
+      this._updateUseHistory(key);
+    }
+  },
+
+  has: function(key) {
+    return !!this._items[key];
+  },
+
+  keys: function() {
+    return Object.keys(this._items);
+  },
+
+  _updateUseHistory: function(key) {
+    for (var i = 0; i < this._useHistory.length; i++) {
+      if (this._useHistory[i] === key) {
+        this._useHistory.splice(i, 1);
+        break;
+      }
+    }
+    this._useHistory.unshift(key);
+  }
+};
+
+module.exports = Cache;
+
+},{}],2:[function(_dereq_,module,exports){
+var Packet = _dereq_('./Packet');
+var Util = _dereq_('./Util');
+
+function Connection(conn, connectionFactory, config) {
+  var self = this;
+
+  this.id = Util.generateRandomId(8);
+  this._conn = conn;
+  this._connectionFactory = connectionFactory;
+  this._connectionCloseDelay = config.connectionCloseDelay >= 0 ?
+    config.connectionCloseDelay : 30000;
+  this._destroyed = false;
+  this._finReceived = false;
+  this.ondata = function() {};
+  this.onerror = function() {};
+  this._silentConnectionCloseTimer = setTimeout(function() {
+    self.destroy();
+  }, config.silentConnectionCloseTimeout >= 0 ? config.silentConnectionCloseTimeout : 180000);
+
+  this._conn.on('data', function(data) {
+    var packet;
+    try {
+      packet = Packet.fromJson(data);
+    } catch (e) {
+      console.error(e);
+      return;
+    }
+
+    if (packet.flags.FIN) {
+      self._finReceived = true;
+      self.destroy();
+      return;
+    }
+
+    if (self.isAvailable()) {
+      if (self._silentConnectionCloseTimer) {
+        clearTimeout(self._silentConnectionCloseTimer);
+        self._silentConnectionCloseTimer = null;
+      }
+      self._connectionFactory.addConnection(self);
+    } else {
+      self.destroy();
+    }
+
+    self.ondata(packet.payload);
+  });
+
+  this._conn.on('close', function() {
+    if (!self._destroyed) {
+      self.destroy();
+    }
+  });
+
+  this._conn.on('error', function(error) {
+    self.onerror(error);
+  });
+};
+
+Connection.prototype = {
+  send: function(data, callback) {
+    if (!callback) {
+      callback = function() {};
+    }
+
+    var packet = Packet.create({}, data);
+
+    if (!this.isAvailable()) {
+      this.destroy();
+      callback(new Error("Connection is not available."));
+      return;
+    }
+
+    try {
+      this._conn.send(packet.toJson());
+    } catch (e) {
+      this.destroy();
+      callback(e);
+      return;
+    }
+
+    if (self._silentConnectionCloseTimer) {
+      clearTimeout(self._silentConnectionCloseTimer);
+      self._silentConnectionCloseTimer = null;
+    }
+    this._connectionFactory.addConnection(this);
+
+    callback();
+  },
+
+  destroy: function() {
+    var self = this;
+
+    if (!this._destroyed) {
+      if (!this._finReceived && this._conn.open) {
+        var packet = Packet.create({FIN: true}, {});
+        this._conn.send(packet.toJson());
+      }
+
+      this._destroyed = true;
+
+      setTimeout(function() {
+        self._conn.close();
+      }, this._connectionCloseDelay);
+    }
+  },
+
+  getRemotePeerId: function() {
+    return this._conn.peer;
+  },
+
+  isAvailable: function() {
+    return !this._finReceived && !this._destroyed && this._conn.open;
+  }
+};
+
+module.exports = Connection;
+
+},{"./Packet":4,"./Util":7}],3:[function(_dereq_,module,exports){
+var PeerAgent = _dereq_('./PeerAgent');
+var Connection = _dereq_('./Connection');
+var Cache = _dereq_('./Cache');
+var Queue = _dereq_('./Queue');
+var Util = _dereq_('./Util');
+
+function ConnectionFactory(config) {
+  Util.initializeDebugLog(config.debug);
+
+  this._peerAgent = null;
+  this._connectionPool = new Cache(
+    config.connectionPoolSize >= 0 ? config.connectionPoolSize : 10, function(connection) {
+      connection.destroy();
+    });
+  this._callbackQueue = new Queue();
+  this.onopen = function() {};
+  this.onerror = function() {};
+  this.onconnection = function() {};
+  this.version = Util.version.join('.');
+
+  this._setupPeerAgent(config);
+};
+
+ConnectionFactory.prototype = {
+  _setupPeerAgent: function(config) {
+    var self = this;
+
+    this._peerAgent = new PeerAgent(config);
+
+    this._peerAgent.onopen = function(peerId) {
+      self.onopen(peerId);
+    };
+
+    this._peerAgent.onconnectionopened = function(peerId, conn, error) {
+      if (error) {
+        self._invokeNextCallback(peerId, null, error);
+        return;
+      }
+
+      if (self._connectionPool.has(peerId)) {
+        self._connectionPool.remove(peerId);
+      }
+
+      var connection = new Connection(conn, self, config);
+      self._invokeNextCallback(peerId, connection);
+    };
+
+    this._peerAgent.onconnection = function(peerId, conn) {
+      if (self._connectionPool.has(peerId)) {
+        self._connectionPool.remove(peerId);
+      }
+
+      var connection = new Connection(conn, self, config);
+      self.onconnection(connection);
+    };
+
+    this._peerAgent.onclose = function() {
+    };
+
+    this._peerAgent.onerror = function(error) {
+      self.onerror(error);
+    };
+  },
+
+  create: function(remotePeerId, callback) {
+    var self = this;
+
+    if (!remotePeerId) {
+      callback(null, new Error("Invalid peer id."));
+      return;
+    }
+
+    this._callbackQueue.enqueue({
+      peerId: remotePeerId,
+      callback: callback
+    });
+
+    this._createConnectionAndInvokeNextCallback();
+  },
+
+  _createConnectionAndInvokeNextCallback: function() {
+    var self = this;
+
+    var callbackInfo = this._callbackQueue.first();
+    if (!callbackInfo) {
+      return;
+    }
+
+    if (this._peerAgent.isWaitingForOpeningConnection()) {
+      return;
+    }
+
+    if (this._connectionPool.has(callbackInfo.peerId)) {
+      var connection = this._connectionPool.get(callbackInfo.peerId);
+      if (connection.isAvailable()) {
+        this._invokeNextCallback(connection.getRemotePeerId(), connection);
+        return;
+      }
+
+      this._connectionPool.remove(connection.getRemotePeerId());
+    }
+
+    this._peerAgent.connect(callbackInfo.peerId);
+  },
+
+  _invokeNextCallback: function(peerId, connection, error) {
+    var self = this;
+
+    setTimeout(function() {
+      self._createConnectionAndInvokeNextCallback();
+    }, 0);
+
+    var callbackInfo = this._callbackQueue.dequeue();
+    if (!callbackInfo) {
+      console.warn("Unknown situation.");
+      return;
+    }
+    if (callbackInfo.peerId !== peerId) {
+      callbackInfo.callback(null, new Error("Unknown situation."));
+      return;
+    }
+    callbackInfo.callback(connection, error);
+  },
+
+  addConnection: function(connection) {
+    var _connection = this._connectionPool.get(connection.getRemotePeerId(), true);
+    if (_connection && _connection.id !== connection.id) {
+      this._connectionPool.remove(_connection.getRemotePeerId());
+    }
+    this._connectionPool.set(connection.getRemotePeerId(), connection);
+  },
+
+  removeConnection: function(remotePeerId) {
+    this._connectionPool.remove(remotePeerId);
+  },
+
+  destroy: function() {
+    this._connectionPool.clear();
+    this._peerAgent.destroy();
+  },
+
+  getPeerId: function() {
+    return this._peerAgent.getPeerId();
+  }
+};
+
+module.exports = ConnectionFactory;
+
+},{"./Cache":1,"./Connection":2,"./PeerAgent":5,"./Queue":6,"./Util":7}],4:[function(_dereq_,module,exports){
+var Util = _dereq_('./Util');
+
+function Packet(id, version, flags, payload) {
+  if (typeof id !== 'string' || typeof version !== 'object' || typeof flags !== 'object') {
+    throw new Error("[Packet] Invalid argument.");
+  }
+
+  if (version[0] !== Util.version[0]) {
+    throw new Error("[Packet] Incompatible version: " + version.join('.'));
+  }
+
+  this.id = id;
+  this.version = version;
+  this.flags = flags;
+  this.payload = payload;
+};
+
+Packet.create = function(flags, payload) {
+  return new Packet(Util.generateRandomId(8), Util.version, flags, payload);
+};
+
+Packet.fromJson = function(json) {
+  if (typeof json !== 'object') {
+    throw new Error("[Packet] Invalid argument.");
+  }
+  return new Packet(json.id, json.version, json.flags, json.payload);
+};
+
+Packet.prototype = {
+  toJson: function() {
+    return {
+      id: this.id,
+      version: this.version,
+      flags: this.flags,
+      payload: this.payload,
+    };
+  }
+};
+
+module.exports = Packet;
+
+},{"./Util":7}],5:[function(_dereq_,module,exports){
+(function (global){
+var Peer = (typeof window !== "undefined" ? window.Peer : typeof global !== "undefined" ? global.Peer : null);
+
+function PeerAgent(config) {
+  var self = this;
+
+  this._connectionOpenTimeout = config.connectionOpenTimeout >= 0 ?
+    config.connectionOpenTimeout : 30000;
+  this.onopen = function() {};
+  this.onconnectionopened = function() {};
+  this.onconnection = function() {};
+  this.onclose = function() {};
+  this.onerror = function() {};
+  this._waitingTimer = null;
+
+  var peerConfig = config.peer ? config.peer : {};
+  if (!peerConfig.id) {
+    this._peer = new Peer(peerConfig.options);
+  } else {
+    this._peer = new Peer(peerConfig.id, peerConfig.options);
+  }
+
+  this._peer.on('open', function(id) {
+    self._peer.on('connection', function(conn) {
+      conn.on('open', function() {
+        self.onconnection(conn.peer, conn);
+      });
+    });
+
+    self._peer.on('close', function() {
+      self.onclose();
+    });
+
+    self.onopen(id);
+  });
+
+  this._peer.on('disconnected', function() {
+    if (!self._peer.destroyed) {
+      self._peer.reconnect();
+    }
+  });
+
+  this._peer.on('error', function(error) {
+    var match = error.message.match(/Could not connect to peer (\w+)/);
+    if (match) {
+      if (!self.isWaitingForOpeningConnection()) {
+        return;
+      }
+
+      clearTimeout(self._waitingTimer);
+      self._waitingTimer = null;
+
+      var peerId = match[1];
+      callbacks.onconnectionopened(peerId, null, error);
+      return;
+    }
+
+    self.onerror(error);
+  });
+};
+
+PeerAgent.prototype = {
+  connect: function(peerId) {
+    var self = this;
+
+    if (this.isWaitingForOpeningConnection()) {
+      this.onconnectionopened(peerId, null, new Error("Invalid state."));
+    }
+
+    var conn = this._peer.connect(peerId);
+    if (!conn) {
+      this.onconnectionopened(peerId, null, new Error("Failed to open connection to " + peerId + "."));
+      return;
+    }
+
+    this._waitingTimer = setTimeout(function() {
+      if (!self.isWaitingForOpeningConnection()) {
+        return;
+      }
+
+      self._waitingTimer = null;
+
+      self.onconnectionopened(peerId, null, new Error("Opening connection to " + peerId + " timed out."));
+    }, this._connectionOpenTimeout);
+
+    conn.on('open', function() {
+      if (!self.isWaitingForOpeningConnection()) {
+        conn.close();
+        return;
+      }
+
+      clearTimeout(self._waitingTimer);
+      self._waitingTimer = null;
+
+      self.onconnectionopened(peerId, conn);
+    });
+  },
+
+  isWaitingForOpeningConnection: function() {
+    return this._waitingTimer !== null;
+  },
+
+  destroy: function() {
+    this._peer.destroy();
+  },
+
+  getPeerId: function() {
+    return this._peer.id;
+  }
+};
+
+module.exports = PeerAgent;
+
+}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],6:[function(_dereq_,module,exports){
+function Queue(items) {
+  this._items = [];
+
+  if (items) {
+    for (var i = 0; i < items.length; i++) {
+      this._items.push(items[i]);
+    }
+  }
+};
+
+Queue.prototype = {
+  enqueue: function(item) {
+    this._items.push(item);
+  },
+
+  dequeue: function() {
+    if (this._items.length === 0) {
+      return undefined;
+    }
+    return this._items.shift();
+  },
+
+  first: function() {
+    if (this._items.length === 0) {
+      return undefined;
+    }
+    return this._items[0];
+  },
+
+  last: function() {
+    if (this._items.length === 0) {
+      return undefined;
+    }
+    return this._items[this._items.length - 1];
+  },
+
+  size: function() {
+    return this._items.length;
+  },
+};
+
+module.exports = Queue;
+
+},{}],7:[function(_dereq_,module,exports){
+Util = {
+  version: [1, 0, 0],
+
+  generateRandomId: function(length) {
+    var id = "";
+    while (id.length < length) {
+      id += Math.random().toString(36).substr(2);
+    }
+    return id.substr(0, length);
+  },
+
+  initializeDebugLog: function(enabled) {
+    Util.debug = function() {
+      if (enabled) {
+        var args = Array.prototype.slice.call(arguments);
+        var d = new Date()
+        var timeStr = [d.getHours(), d.getMinutes(), d.getSeconds()].join(':') + ':';
+        args.unshift(timeStr);
+        console.log.apply(console, args);
+      }
+    };
+  },
+};
+
+module.exports = Util;
+
+},{}],8:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
   var Utils = _dereq_('./Utils');
 
-  var CheckPredecessorTask = function(references) {
+  var CheckPredecessorTask = function(localNode, references) {
+    this._localNode = localNode;
     this._references = references;
     this._timer = null;
   };
 
-  CheckPredecessorTask.create = function(references, config) {
+  CheckPredecessorTask.create = function(localNode, references, config) {
     if (!Utils.isZeroOrPositiveNumber(config.checkPredecessorTaskInterval)) {
       config.checkPredecessorTaskInterval = 30000;
     }
 
-    var task = new CheckPredecessorTask(references);
+    var task = new CheckPredecessorTask(localNode, references);
     var timer = setInterval(function() {
       task.run();
     }, config.checkPredecessorTaskInterval);
@@ -31,10 +612,19 @@
         return;
       }
 
-      predecessor.ping(function(error) {
+      predecessor.notifyAsSuccessor(this._localNode, function(successor, error) {
         if (error) {
           console.log(error);
           self._references.removeReference(predecessor);
+          return;
+        }
+
+        if (!successor.equals(self._localNode)) {
+          Utils.debug("[CheckPredecessorTask] Predecessor's successor is not self.");
+
+          self._references.addReferenceAsPredecessor(successor);
+
+          self.run();
           return;
         }
 
@@ -54,7 +644,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],2:[function(_dereq_,module,exports){
+},{"./Utils":24}],9:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -242,318 +832,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./LocalNode":10,"./Utils":21}],3:[function(_dereq_,module,exports){
-(function (global){
-(function() {
-  var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
-  var Request = _dereq_('./Request');
-  var Response = _dereq_('./Response');
-  var Packet = _dereq_('./Packet');
-  var Utils = _dereq_('./Utils');
-
-  var Connection = function(conn, callbacks, config) {
-    var self = this;
-
-    if (!Utils.isZeroOrPositiveNumber(config.connectionCloseDelay)) {
-      config.connectionCloseDelay = 30000;
-    }
-
-    this._conn = conn;
-    this._callbacks = callbacks;
-    this._config = config;
-    this._shutdown = false;
-
-    this._conn.on('data', function(data) {
-      var packet;
-      try {
-        packet = Packet.fromJson(data);
-      } catch (e) {
-        console.error(e);
-        return;
-      }
-
-      if (packet.flags.FIN) {
-        self._shutdown = true;
-        callbacks.receivedFin(self);
-        return;
-      }
-
-      self._onDataReceived(packet.payload);
-    });
-
-    this._conn.on('close', function() {
-      self._shutdown = true;
-      callbacks.closedByRemote(self);
-    });
-
-    this._conn.on('error', function(error) {
-      console.log(error);
-    });
-  };
-
-  Connection.prototype = {
-    send: function(requestOrResponse, callback) {
-      var packet = Packet.create({}, requestOrResponse.toJson());
-
-      if (this.isAvailable()) {
-        this._conn.send(packet.toJson());
-      } else {
-        throw new Error("Connection is not available.");
-      }
-    },
-
-    _onDataReceived: function(data) {
-      var self = this;
-
-      if (Response.isResponse(data)) {
-        var response;
-        try {
-          response = Response.fromJson(data);
-        } catch (e) {
-          console.log(e);
-          return;
-        }
-        this._callbacks.responseReceived(this, response);
-      } else if (Request.isRequest(data)) {
-        var request;
-        try {
-          request = Request.fromJson(data);
-        } catch (e) {
-          console.log(e);
-          return;
-        }
-        this._callbacks.requestReceived(this, request);
-      }
-    },
-
-    close: function() {
-      this._callbacks.closedByLocal(this);
-    },
-
-    shutdown: function() {
-      var self = this;
-
-      if (this.isAvailable()) {
-        var packet = Packet.create({FIN: true}, {});
-        this._conn.send(packet.toJson());
-      }
-
-      this._shutdown = true;
-
-      _.delay(function() {
-        self._conn.close();
-      }, this._config.connectionCloseDelay);
-    },
-
-    getPeerId: function() {
-      return this._conn.peer;
-    },
-
-    isAvailable: function() {
-      return !this._shutdown && this._conn.open;
-    }
-  };
-
-  module.exports = Connection;
-})();
-
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Packet":13,"./Request":16,"./Response":18,"./Utils":21}],4:[function(_dereq_,module,exports){
-(function (global){
-(function() {
-  var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
-  var PeerAgent = _dereq_('./PeerAgent');
-  var Connection = _dereq_('./Connection');
-  var Utils = _dereq_('./Utils');
-
-  var ConnectionFactory = function(config, nodeFactory, callback) {
-    var self = this;
-
-    var callbacks = {
-      requestReceived: function(connection, request) {
-        if (connection.isAvailable()) {
-          self._connectionPool.set(connection.getPeerId(), connection);
-        } else {
-          connection.shutdown();
-        }
-
-        nodeFactory.onRequestReceived(connection.getPeerId(), request);
-      },
-      responseReceived: function(connection, response) {
-        if (connection.isAvailable()) {
-          self._connectionPool.set(connection.getPeerId(), connection);
-        } else {
-          connection.shutdown();
-        }
-
-        nodeFactory.onResponseReceived(connection.getPeerId(), response);
-      },
-      closedByRemote: function(connection) {
-        self.removeConnection(connection.getPeerId());
-      },
-      closedByLocal: function(connection) {
-        if (connection.isAvailable()) {
-          self._connectionPool.set(connection.getPeerId(), connection);
-        } else {
-          connection.shutdown();
-        }
-      },
-      receivedFin: function(connection) {
-        callbacks.closedByRemote(connection);
-      },
-    };
-
-    this._peerAgent = new PeerAgent(config, {
-      onPeerSetup: function(peerId, error) {
-        if (error) {
-          callback(null, error);
-          return;
-        }
-        callback(self);
-      },
-
-      onConnectionOpened: function(peerId, conn, error) {
-        if (error) {
-          self._invokeNextCallback(peerId, null, error);
-          return;
-        }
-
-        var connection = new Connection(conn, callbacks, config);
-
-        self._invokeNextCallback(peerId, connection);
-      },
-
-      onConnection: function(peerId, conn) {
-        if (self._connectionPool.has(peerId)) {
-          self.removeConnection(peerId);
-        }
-
-        var connection;
-        var timer = setTimeout(function() {
-          connection.shutdown();
-        }, config.silentConnectionCloseTimeout);
-
-        var clearTimerOnce = _.once(function() { clearTimeout(timer); });
-
-        connection = new Connection(conn, _.defaults({
-          requestReceived: function(connection, request) {
-            clearTimerOnce();
-            callbacks.requestReceived(connection, request);
-          },
-          responseReceived: function(connection, response) {
-            clearTimerOnce();
-            callbacks.responseReceived(connection, response);
-          }
-        }, callbacks), config);
-      },
-
-      onPeerClosed: function() {
-        _.each(self._connectionPool.keys(), function(peerId) {
-          self.removeConnection(peerId);
-        });
-      }
-    });
-
-    if (!Utils.isZeroOrPositiveNumber(config.connectionPoolSize)) {
-      config.connectionPoolSize = 10;
-    }
-    if (!Utils.isZeroOrPositiveNumber(config.silentConnectionCloseTimeout)) {
-      config.silentConnectionCloseTimeout = 30000;
-    }
-    this._connectionPool = new Utils.Cache(config.connectionPoolSize, function(connection) {
-      connection.shutdown();
-    });
-    this._callbackQueue = new Utils.Queue();
-  };
-
-  ConnectionFactory.create = function(config, nodeFactory, callback) {
-    var factory = new ConnectionFactory(config, nodeFactory, callback);
-  };
-
-  ConnectionFactory.prototype = {
-    create: function(remotePeerId, callback) {
-      var self = this;
-
-      if (!Utils.isNonemptyString(remotePeerId)) {
-        callback(null);
-        return;
-      }
-
-      this._callbackQueue.enqueue({
-        peerId: remotePeerId,
-        callback: callback
-      });
-
-      this._createConnectionAndInvokeNextCallback();
-    },
-
-    _createConnectionAndInvokeNextCallback: function() {
-      var self = this;
-
-      var callbackInfo = this._callbackQueue.first();
-      if (_.isNull(callbackInfo)) {
-        return;
-      }
-
-      if (this._peerAgent.isWaitingForOpeningConnection()) {
-        return;
-      }
-
-      if (this._connectionPool.has(callbackInfo.peerId)) {
-        var connection = this._connectionPool.get(callbackInfo.peerId);
-        if (connection.isAvailable()) {
-          this._invokeNextCallback(connection.getPeerId(), connection);
-          return;
-        }
-
-        this.removeConnection(connection.getPeerId());
-      }
-
-      this._peerAgent.connect(callbackInfo.peerId);
-    },
-
-    _invokeNextCallback: function(peerId, connection, error) {
-      var self = this;
-
-      _.defer(function() {
-        self._createConnectionAndInvokeNextCallback();
-      });
-
-      var callbackInfo = this._callbackQueue.dequeue();
-      if (_.isNull(callbackInfo)) {
-        console.log("Unknown situation.");
-        return;
-      }
-      if (callbackInfo.peerId !== peerId) {
-        callbackInfo.callback(null, new Error("Unknown situation."));
-        return;
-      }
-      callbackInfo.callback(connection, error);
-    },
-
-    removeConnection: function(remotePeerId) {
-      var connection = this._connectionPool.get(remotePeerId);
-      if (_.isNull(connection)) {
-        return;
-      }
-      this._connectionPool.remove(remotePeerId);
-      connection.shutdown();
-    },
-
-    destroy: function() {
-      this._peerAgent.destroy();
-    },
-
-    getPeerId: function() {
-      return this._peerAgent.getPeerId();
-    }
-  };
-
-  module.exports = ConnectionFactory;
-})();
-
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Connection":3,"./PeerAgent":14,"./Utils":21}],5:[function(_dereq_,module,exports){
+},{"./LocalNode":15,"./Utils":24}],10:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -596,7 +875,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./ID":9}],6:[function(_dereq_,module,exports){
+},{"./ID":14}],11:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -751,7 +1030,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./ID":9,"./Utils":21}],7:[function(_dereq_,module,exports){
+},{"./ID":14,"./Utils":24}],12:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -911,7 +1190,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],8:[function(_dereq_,module,exports){
+},{}],13:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -968,7 +1247,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],9:[function(_dereq_,module,exports){
+},{"./Utils":24}],14:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -1140,7 +1419,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],10:[function(_dereq_,module,exports){
+},{"./Utils":24}],15:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -1196,7 +1475,7 @@
       this._tasks = {
         stabilizeTask: StabilizeTask.create(this, this._references, this._entries, this._config),
         fixFingerTask: FixFingerTask.create(this, this._references, this._config),
-        checkPredecessorTask: CheckPredecessorTask.create(this._references, this._config)
+        checkPredecessorTask: CheckPredecessorTask.create(this, this._references, this._config)
       };
 
       Utils.debug("Created tasks.");
@@ -1307,6 +1586,7 @@
             });
 
             self._createTasks();
+            self._tasks.checkPredecessorTask.run();
 
             Utils.debug("Joining network succeeded.");
 
@@ -1493,6 +1773,11 @@
       callback(references);
     },
 
+    notifyAsSuccessor: function(potentialSuccessor, callback) {
+      this._references.addReference(potentialSuccessor);
+      callback(this._references.getSuccessor());
+    },
+
     leavesNetwork: function(predecessor) {
       this._references.removeReference(this._references.getPredecessor());
       this._references.addReferenceAsPredecessor(predecessor);
@@ -1667,7 +1952,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./CheckPredecessorTask":1,"./Entry":5,"./EntryList":6,"./FixFingerTask":8,"./ID":9,"./NodeFactory":12,"./ReferenceList":15,"./StabilizeTask":19,"./Utils":21}],11:[function(_dereq_,module,exports){
+},{"./CheckPredecessorTask":8,"./Entry":10,"./EntryList":11,"./FixFingerTask":13,"./ID":14,"./NodeFactory":17,"./ReferenceList":18,"./StabilizeTask":22,"./Utils":24}],16:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -1676,7 +1961,7 @@
   var Entry = _dereq_('./Entry');
   var Utils = _dereq_('./Utils');
 
-  var Node = function(nodeInfo, nodeFactory, connectionFactory, requestHandler, config) {
+  var Node = function(nodeInfo, localId, nodeFactory, connectionFactory, requestHandler, config) {
     if (!Node.isValidNodeInfo(nodeInfo)) {
       throw new Error("Invalid arguments.");
     }
@@ -1684,9 +1969,13 @@
     if (!Utils.isZeroOrPositiveNumber(config.requestTimeout)) {
       config.requestTimeout = 180000;
     }
+    if (!Utils.isZeroOrPositiveNumber(config.maxRoundCount)) {
+      config.maxRoundCount = 1;
+    }
 
     this._peerId = nodeInfo.peerId;
     this.nodeId = ID.create(nodeInfo.peerId);
+    this._localId = localId;
     this._nodeFactory = nodeFactory;
     this._connectionFactory = connectionFactory;
     this._requestHandler = requestHandler;
@@ -1712,29 +2001,62 @@
         return;
       }
 
+      var roundCount = 0;
+      (function _findSuccessor(node) {
+        node.findSuccessorIterative(key, function(status, successor, error) {
+          if (status === 'SUCCESS') {
+            callback(successor);
+          } else if (status === 'REDIRECT') {
+            if (self.nodeId.isInInterval(node.nodeId, successor.nodeId)) {
+              roundCount++;
+              if (roundCount > self._config.maxRoundCount) {
+                callback(null, new Error("FIND_SUCCESSOR request circulates in the network."));
+                return;
+              }
+            }
+
+            Utils.debug("[findSuccessor] redirected to " + successor.getPeerId());
+
+            _findSuccessor(successor);
+          } else if (status === 'FAILED') {
+            callback(null, error);
+          } else {
+            callback(null, new Error("Got unknown status:", status));
+          }
+        });
+      })(this);
+    },
+
+    findSuccessorIterative: function(key, callback) {
+      var self = this;
+
       this._sendRequest('FIND_SUCCESSOR', {
         key: key.toHexString()
       }, {
         success: function(result) {
           var nodeInfo = result.successorNodeInfo;
-          self._nodeFactory.create(nodeInfo, callback);
+          self._nodeFactory.create(nodeInfo, function(successor, error) {
+            if (error) {
+              callback('FAILED', null, error);
+              return;
+            }
+            callback('SUCCESS', successor);
+          });
         },
 
         redirect: function(result) {
-          self._nodeFactory.create(result.redirectNodeInfo, function(node, error) {
+          self._nodeFactory.create(result.redirectNodeInfo, function(nextNode, error) {
             if (error) {
-              callback(null, error);
+              callback('FAILED', null, error);
               return;
             }
 
-            Utils.debug("[findSuccessor] redirected to " + node.getPeerId());
-
-            node.findSuccessor(key, callback);
+            callback('REDIRECT', nextNode);
           });
         },
 
         error: function(error) {
-          callback(null, error);
+          callback('FAILED', null, error);
         }
       });
     },
@@ -1787,6 +2109,29 @@
 
           self._nodeFactory.createAll(result.referencesNodeInfo, function(references) {
             callback(references);
+          });
+        },
+
+        error: function(error) {
+          callback(null, error);
+        }
+      });
+    },
+
+    notifyAsSuccessor: function(potentialSuccessor, callback) {
+      var self = this;
+
+      this._sendRequest('NOTIFY_AS_SUCCESSOR', {
+        potentialSuccessorNodeInfo: potentialSuccessor.toNodeInfo()
+      }, {
+        success: function(result) {
+          self._nodeFactory.create(result.successorNodeInfo, function(successor, error) {
+            if (error) {
+              callback(null, error);
+              return;
+            }
+
+            callback(successor);
           });
         },
 
@@ -1944,6 +2289,8 @@
           return;
         }
 
+        self._nodeFactory.setListenersToConnection(connection);
+
         var request = Request.create(method, params);
 
         if (callbacks) {
@@ -1975,11 +2322,7 @@
 
         Utils.debug("Sending request to", self._peerId, ":", request.method);
 
-        try {
-          connection.send(request);
-        } finally {
-          connection.close();
-        }
+        connection.send(request);
       });
     },
 
@@ -1995,13 +2338,11 @@
             return;
           }
 
+          self._nodeFactory.setListenersToConnection(connection);
+
           Utils.debug("Sending response to", self._peerId, ":", response.method);
 
-          try {
-            connection.send(response);
-          } finally {
-            connection.close();
-          }
+          connection.send(response);
         });
       });
     },
@@ -2046,12 +2387,14 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Entry":5,"./ID":9,"./Request":16,"./Utils":21}],12:[function(_dereq_,module,exports){
+},{"./Entry":10,"./ID":14,"./Request":19,"./Utils":24}],17:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
+  var ConnectionFactory = _dereq_('connectionpool');
   var Node = _dereq_('./Node');
-  var ConnectionFactory = _dereq_('./ConnectionFactory');
+  var Request = _dereq_('./Request');
+  var Response = _dereq_('./Response');
   var RequestHandler = _dereq_('./RequestHandler');
   var ID = _dereq_('./ID');
   var Utils = _dereq_('./Utils');
@@ -2076,16 +2419,23 @@
     }
 
     var nodeFactory = new NodeFactory(localNode, config);
-    ConnectionFactory.create(config, nodeFactory, function(connectionFactory, error) {
-      if (error) {
-        callback(null, null, error);
-        return;
-      }
 
+    var callbackOnce = _.once(callback);
+    var connectionFactory = new ConnectionFactory(config);
+
+    connectionFactory.onopen = function(peerId) {
       nodeFactory._connectionFactory = connectionFactory;
+      callbackOnce(peerId, nodeFactory);
+    };
 
-      callback(connectionFactory.getPeerId(), nodeFactory);
-    });
+    connectionFactory.onconnection = function(connection) {
+      nodeFactory.setListenersToConnection(connection);
+    };
+
+    connectionFactory.onerror = function(error) {
+      console.log(error);
+      callbackOnce(null, null, error);
+    };
   };
 
   NodeFactory.prototype = {
@@ -2102,7 +2452,8 @@
         return;
       }
 
-      var node = new Node(nodeInfo, this, this._connectionFactory, this._requestHandler, this._config);
+      var node = new Node(nodeInfo, this._localNode.nodeId, this, this._connectionFactory,
+                          this._requestHandler, this._config);
 
       callback(node);
     },
@@ -2126,7 +2477,37 @@
       });
     },
 
-    onRequestReceived: function(peerId, request) {
+    setListenersToConnection: function(connection) {
+      var self = this;
+
+      connection.ondata = function(data) {
+        if (Response.isResponse(data)) {
+          var response;
+          try {
+            response = Response.fromJson(data);
+          } catch (e) {
+            console.log(e);
+            return;
+          }
+          self._responseReceived(connection.getRemotePeerId(), response);
+        } else if (Request.isRequest(data)) {
+          var request;
+          try {
+            request = Request.fromJson(data);
+          } catch (e) {
+            console.log(e);
+            return;
+          }
+          self._requestReceived(connection.getRemotePeerId(), request);
+        }
+      };
+
+      connection.onerror = function(error) {
+        console.log(error);
+      };
+    },
+
+    _requestReceived: function(peerId, request) {
       this.create({peerId: peerId}, function(node, error) {
         if (error) {
           console.log(error);
@@ -2136,7 +2517,7 @@
       });
     },
 
-    onResponseReceived: function(peerId, response) {
+    _responseReceived: function(peerId, response) {
       this.create({peerId: peerId}, function(node, error) {
         if (error) {
           console.log(error);
@@ -2168,192 +2549,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./ConnectionFactory":4,"./ID":9,"./Node":11,"./RequestHandler":17,"./Utils":21}],13:[function(_dereq_,module,exports){
-(function (global){
-(function() {
-  var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
-  var Utils = _dereq_('./Utils');
-
-  var Packet = function(id, flags, payload) {
-    if (!Utils.isNonemptyString(id) ||
-        !_.isObject(flags) || !_.isObject(payload)) {
-      throw new Error("Invalid argument.");
-    }
-
-    this.id = id;
-    this.flags = flags;
-    this.payload = payload;
-  };
-
-  Packet.create = function(flags, payload) {
-    return new Packet(Utils.generateRandomId(8), flags, payload);
-  };
-
-  Packet.fromJson = function(json) {
-    if (!_.isObject(json)) {
-      throw new Error("Invalid argument.");
-    }
-    return new Packet(json.id, json.flags, json.payload);
-  };
-
-  Packet.prototype = {
-    toJson: function() {
-      return {
-        id: this.id,
-        flags: this.flags,
-        payload: this.payload,
-      };
-    }
-  };
-
-  module.exports = Packet;
-})();
-
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],14:[function(_dereq_,module,exports){
-(function (global){
-(function() {
-  var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
-  var Peer = (typeof window !== "undefined" ? window.Peer : typeof global !== "undefined" ? global.Peer : null);
-  var Utils = _dereq_('./Utils');
-
-  var PeerAgent = function(config, callbacks) {
-    var self = this;
-
-    if (!_.isObject(config.peer)) {
-      config.peer = {id: undefined, options: {}};
-    }
-    if (!_.isObject(config.peer.options)) {
-      config.peer.options = {};
-    }
-    if (!Utils.isZeroOrPositiveNumber(config.connectRateLimit)) {
-      config.connectRateLimit = 3000;
-    }
-    if (!Utils.isZeroOrPositiveNumber(config.connectionOpenTimeout)) {
-      config.connectionOpenTimeout = 30000;
-    }
-
-    if (!_.isString(config.peer.id)) {
-      this._peer = new Peer(config.peer.options);
-    } else {
-      this._peer = new Peer(config.peer.id, config.peer.options);
-    }
-    this._config = config;
-    this._callbacks = callbacks;
-    this._waitingTimer = null;
-
-    var onPeerSetup = _.once(callbacks.onPeerSetup);
-
-    this._peer.on('open', function(id) {
-      Utils.debug("Peer opend (peer ID:", id, ")");
-
-      self._peer.on('connection', function(conn) {
-        Utils.debug("Connection from", conn.peer);
-
-        conn.on('open', function() {
-          callbacks.onConnection(conn.peer, conn);
-        });
-      });
-
-      self._peer.on('close', function() {
-        Utils.debug("Peer closed.");
-
-        callbacks.onPeerClosed();
-      });
-
-      onPeerSetup(id);
-    });
-
-    this._peer.on('disconnected', function() {
-      if (!self._peer.destroyed) {
-        Utils.debug("Reconnect to the server.");
-
-        self._peer.reconnect();
-      }
-    });
-
-    this._peer.on('error', function(error) {
-      Utils.debug("Peer error:", error);
-
-      var match = error.message.match(/Could not connect to peer (\w+)/);
-      if (match) {
-        if (!self.isWaitingForOpeningConnection()) {
-          return;
-        }
-
-        clearTimeout(self._waitingTimer);
-        self._waitingTimer = null;
-
-        var peerId = match[1];
-        callbacks.onConnectionOpened(peerId, null, error);
-        return;
-      }
-
-      console.log(error);
-      onPeerSetup(null, error);
-    });
-  };
-
-  PeerAgent.prototype = {
-    connect: function(peerId) {
-      var self = this;
-
-      if (this.isWaitingForOpeningConnection()) {
-        throw new Error("Invalid state.");
-      }
-
-      var conn = this._peer.connect(peerId);
-      if (!conn) {
-        var error = new Error("Failed to open connection to " + peerId + ".");
-        this._callbacks.onConnectionOpened(peerId, null, error);
-        return;
-      }
-
-      this._waitingTimer = setTimeout(function() {
-        if (!self.isWaitingForOpeningConnection()) {
-          return;
-        }
-
-        self._waitingTimer = null;
-
-        var error = new Error("Opening connection to " + peerId + " timed out.");
-        self._callbacks.onConnectionOpened(peerId, null, error);
-      }, this._config.connectionOpenTimeout);
-
-      conn.on('open', function() {
-        Utils.debug("Connection to", conn.peer, "opened.");
-
-        if (!self.isWaitingForOpeningConnection()) {
-          console.log("Unexpected opening connection.");
-          conn.close();
-          return;
-        }
-
-        clearTimeout(self._waitingTimer);
-        self._waitingTimer = null;
-
-        self._callbacks.onConnectionOpened(peerId, conn);
-      });
-    },
-
-    isWaitingForOpeningConnection: function() {
-      return !_.isNull(this._waitingTimer);
-    },
-
-    destroy: function() {
-      this._peer.destroy();
-    },
-
-    getPeerId: function() {
-      return this._peer.id;
-    }
-  };
-
-  module.exports = PeerAgent;
-})();
-
-}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],15:[function(_dereq_,module,exports){
+},{"./ID":14,"./Node":16,"./Request":19,"./RequestHandler":20,"./Response":21,"./Utils":24,"connectionpool":3}],18:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -2541,7 +2737,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./FingerTable":7,"./SuccessorList":20}],16:[function(_dereq_,module,exports){
+},{"./FingerTable":12,"./SuccessorList":23}],19:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -2597,7 +2793,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Response":18,"./Utils":21}],17:[function(_dereq_,module,exports){
+},{"./Response":21,"./Utils":24}],20:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -2609,224 +2805,272 @@
   var RequestHandler = function(localNode, nodeFactory) {
     this._localNode = localNode;
     this._nodeFactory = nodeFactory;
+    this._handlers = {
+      'FIND_SUCCESSOR': this._onFindSuccessor,
+      'NOTIFY_AND_COPY': this._onNotifyAndCopy,
+      'NOTIFY': this._onNotify,
+      'NOTIFY_AS_SUCCESSOR': this._onNotifyAsSuccessor,
+      'PING': this._onPing,
+      'INSERT_REPLICAS': this._onInsertReplicas,
+      'REMOVE_REPLICAS': this._onRemoveReplicas,
+      'INSERT_ENTRY': this._onInsertEntry,
+      'RETRIEVE_ENTRIES': this._onRetrieveEntries,
+      'REMOVE_ENTRY': this._onRemoveEntry,
+      'LEAVES_NETWORK': this._onLeavesNetwork,
+    };
   }
 
   RequestHandler.prototype = {
     handle: function(request, callback) {
+      var handler = this._handlers[request.method];
+      if (!handler) {
+        this._sendFailureResponse("Unknown request method type: " + request.method, request, callback);
+        return;
+      }
+
+      handler.call(this, request, callback);
+    },
+
+    _onFindSuccessor: function(request, callback) {
       var self = this;
 
-      switch (request.method) {
-      case 'FIND_SUCCESSOR':
-        if (!Utils.isNonemptyString(request.params.key)) {
-          this._sendFailureResponse("Invalid params.", request, callback);
-          return;
-        }
-
-        var key = ID.fromHexString(request.params.key);
-        this._localNode.findSuccessorIterative(key, function(status, node, error) {
-          if (error) {
-            console.log(error);
-            self._sendFailureResponse(e.message, request, callback);
-            return;
-          }
-
-          if (status === 'SUCCESS') {
-            self._sendSuccessResponse({
-              successorNodeInfo: node.toNodeInfo()
-            }, request, callback);
-          } else if (status === 'REDIRECT') {
-            self._sendRedirectResponse({
-              redirectNodeInfo: node.toNodeInfo()
-            }, request, callback);
-          }
-        });
-        break;
-
-      case 'NOTIFY_AND_COPY':
-        var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
-        this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
-          if (error) {
-            console.log(error);
-            this._sendFailureResponse(e.message, request, callback);
-            return;
-          }
-
-          self._localNode.notifyAndCopyEntries(node, function(references, entries) {
-            if (_.isNull(references) || _.isNull(entries)) {
-              self._sendFailureResponse("Unknown error.", request, callback);
-              return;
-            }
-
-            self._sendSuccessResponse({
-              referencesNodeInfo: _.invoke(references, 'toNodeInfo'),
-              entries: _.invoke(entries, 'toJson')
-            }, request, callback);
-          });
-        });
-        break;
-
-      case 'NOTIFY':
-        var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
-        this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
-          if (error) {
-            console.log(error);
-            self._sendFailureResponse(e.message, request, callback);
-            return;
-          }
-
-          self._localNode.notify(node, function(references) {
-            if (_.isNull(references)) {
-              self._sendFailureResponse("Unknown error.", request, callback);
-              return;
-            }
-
-            self._sendSuccessResponse({
-              referencesNodeInfo: _.invoke(references, 'toNodeInfo')
-            }, request, callback);
-          });
-        });
-        break;
-
-      case 'PING':
-        self._sendSuccessResponse({}, request, callback);
-        break;
-
-      case 'INSERT_REPLICAS':
-        if (!_.isArray(request.params.replicas)) {
-          return;
-        }
-        var replicas = _.chain(request.params.replicas)
-          .map(function(replica) {
-            try {
-              return Entry.fromJson(replica);
-            } catch (e) {
-              return null;
-            }
-          })
-          .reject(function(replica) { return _.isNull(replica); })
-          .value();
-        self._localNode.insertReplicas(replicas);
-        break;
-
-      case 'REMOVE_REPLICAS':
-        var sendingNodeId;
-        try {
-            sendingNodeId = ID.fromHexString(request.params.sendingNodeId);
-        } catch (e) {
-          return;
-        }
-        if (!_.isArray(request.params.replicas)) {
-          return;
-        }
-        var replicas = _.chain(request.params.replicas)
-          .map(function(replica) {
-            try {
-              return Entry.fromJson(replica);
-            } catch (e) {
-              return null;
-            }
-          })
-          .reject(function(replica) { return _.isNull(replica); })
-          .value();
-        self._localNode.removeReplicas(sendingNodeId, replicas);
-        break;
-
-      case 'INSERT_ENTRY':
-        var entry;
-        try {
-          entry = Entry.fromJson(request.params.entry);
-        } catch (e) {
-          self._sendFailureResponse(e.message, request, callback);;
-          return;
-        }
-        self._localNode.insertEntryIterative(entry, function(status, node, error) {
-          if (error) {
-            console.log("Failed to insert entry:", error);
-            self._sendFailureResponse("Unknown error.", request, callback);
-            return;
-          }
-
-          if (status === 'SUCCESS') {
-            self._sendSuccessResponse({}, request, callback);
-          } else if (status === 'REDIRECT') {
-            self._sendRedirectResponse({
-              redirectNodeInfo: node.toNodeInfo()
-            }, request, callback);
-          }
-        });
-        break;
-
-      case 'RETRIEVE_ENTRIES':
-        var id;
-        try {
-          id = ID.fromHexString(request.params.id);
-        } catch (e) {
-          self._sendFailureResponse(e.message, request, callback);
-          return;
-        }
-        self._localNode.retrieveEntriesIterative(id, function(status, entries, node, error) {
-          if (error) {
-            console.log("Failed to retrieve entries:", error);
-            self._sendFailureResponse("Unknown error.", request, callback);
-            return;
-          }
-
-          if (status === 'SUCCESS') {
-            self._sendSuccessResponse({
-              entries: _.invoke(entries, 'toJson')
-            }, request, callback);
-          } else if (status === 'REDIRECT') {
-            self._sendRedirectResponse({
-              redirectNodeInfo: node.toNodeInfo()
-            }, request, callback);
-          }
-        });
-        break;
-
-      case 'REMOVE_ENTRY':
-        var entry;
-        try {
-          entry = Entry.fromJson(request.params.entry);
-        } catch (e) {
-          self._sendFailureResponse(e.message, request, callback);
-          return;
-        }
-        self._localNode.removeEntryIterative(entry, function(status, node, error) {
-          if (error) {
-            console.log("Failed to remove entry:", error);
-            self._sendFailureResponse("Unknown error.", request, callback);
-            return;
-          }
-
-          if (status === 'SUCCESS') {
-            self._sendSuccessResponse({}, request, callback);
-          } else if (status === 'REDIRECT') {
-            self._sendRedirectResponse({
-              redirectNodeInfo: node.toNodeInfo()
-            }, request, callback);
-          }
-        });
-        break;
-
-      case 'SHUTDOWN':
-        break;
-
-      case 'LEAVES_NETWORK':
-        var predecessorNodeInfo = request.params.predecessorNodeInfo;
-        this._nodeFactory.create(predecessorNodeInfo, function(predecessor, error) {
-          if (error) {
-            console.log(error);
-            return;
-          }
-
-          self._localNode.leavesNetwork(predecessor);
-        });
-        break;
-
-      default:
-        this._sendFailureResponse("Unknown request method type.", request, callback);
-        break;
+      if (!Utils.isNonemptyString(request.params.key)) {
+        this._sendFailureResponse("Invalid params.", request, callback);
+        return;
       }
+
+      var key = ID.fromHexString(request.params.key);
+      this._localNode.findSuccessorIterative(key, function(status, node, error) {
+        if (error) {
+          console.log(error);
+          self._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+
+        if (status === 'SUCCESS') {
+          self._sendSuccessResponse({
+            successorNodeInfo: node.toNodeInfo()
+          }, request, callback);
+        } else if (status === 'REDIRECT') {
+          self._sendRedirectResponse({
+            redirectNodeInfo: node.toNodeInfo()
+          }, request, callback);
+        }
+      });
+    },
+
+    _onNotifyAndCopy: function(request, callback) {
+      var self = this;
+
+      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+        if (error) {
+          console.log(error);
+          this._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+
+        self._localNode.notifyAndCopyEntries(node, function(references, entries) {
+          if (_.isNull(references) || _.isNull(entries)) {
+            self._sendFailureResponse("Unknown error.", request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            referencesNodeInfo: _.invoke(references, 'toNodeInfo'),
+            entries: _.invoke(entries, 'toJson')
+          }, request, callback);
+        });
+      });
+    },
+
+    _onNotify: function(request, callback) {
+      var self = this;
+
+      var potentialPredecessorNodeInfo = request.params.potentialPredecessorNodeInfo;
+      this._nodeFactory.create(potentialPredecessorNodeInfo, function(node, error) {
+        if (error) {
+          console.log(error);
+          self._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+
+        self._localNode.notify(node, function(references) {
+          if (_.isNull(references)) {
+            self._sendFailureResponse("Unknown error.", request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            referencesNodeInfo: _.invoke(references, 'toNodeInfo')
+          }, request, callback);
+        });
+      });
+    },
+
+    _onNotifyAsSuccessor: function(request, callback) {
+      var self = this;
+
+      var potentialSuccessorNodeInfo = request.params.potentialSuccessorNodeInfo;
+      this._nodeFactory.create(potentialSuccessorNodeInfo, function(potentialSuccessor, error) {
+        if (error) {
+          console.log(error);
+          self._sendFailureResponse(e.message, request, callback);
+          return;
+        }
+
+        self._localNode.notifyAsSuccessor(potentialSuccessor, function(successor, error) {
+          if (error) {
+            self._sendFailureResponse(e.message, request, callback);
+            return;
+          }
+
+          self._sendSuccessResponse({
+            successorNodeInfo: successor.toNodeInfo()
+          }, request, callback);
+        });
+      });
+    },
+
+    _onPing: function(request, callback) {
+      this._sendSuccessResponse({}, request, callback);
+    },
+
+    _onInsertReplicas: function(request, callback) {
+      if (!_.isArray(request.params.replicas)) {
+        return;
+      }
+      var replicas = _.chain(request.params.replicas)
+        .map(function(replica) {
+          try {
+            return Entry.fromJson(replica);
+          } catch (e) {
+            return null;
+          }
+        })
+        .reject(function(replica) { return _.isNull(replica); })
+        .value();
+      this._localNode.insertReplicas(replicas);
+    },
+
+    _onRemoveReplicas: function(request, callback) {
+      var sendingNodeId;
+      try {
+        sendingNodeId = ID.fromHexString(request.params.sendingNodeId);
+      } catch (e) {
+        return;
+      }
+      if (!_.isArray(request.params.replicas)) {
+        return;
+      }
+      var replicas = _.chain(request.params.replicas)
+        .map(function(replica) {
+          try {
+            return Entry.fromJson(replica);
+          } catch (e) {
+            return null;
+          }
+        })
+        .reject(function(replica) { return _.isNull(replica); })
+        .value();
+      this._localNode.removeReplicas(sendingNodeId, replicas);
+    },
+
+    _onInsertEntry: function(request, callback) {
+      var self = this;
+
+      var entry;
+      try {
+        entry = Entry.fromJson(request.params.entry);
+      } catch (e) {
+        this._sendFailureResponse(e.message, request, callback);;
+        return;
+      }
+      this._localNode.insertEntryIterative(entry, function(status, node, error) {
+        if (error) {
+          console.log("Failed to insert entry:", error);
+          self._sendFailureResponse("Unknown error.", request, callback);
+          return;
+        }
+
+        if (status === 'SUCCESS') {
+          self._sendSuccessResponse({}, request, callback);
+        } else if (status === 'REDIRECT') {
+          self._sendRedirectResponse({
+            redirectNodeInfo: node.toNodeInfo()
+          }, request, callback);
+        }
+      });
+    },
+
+    _onRetrieveEntries: function(request, callback) {
+      var self = this;
+
+      var id;
+      try {
+        id = ID.fromHexString(request.params.id);
+      } catch (e) {
+        this._sendFailureResponse(e.message, request, callback);
+        return;
+      }
+      this._localNode.retrieveEntriesIterative(id, function(status, entries, node, error) {
+        if (error) {
+          console.log("Failed to retrieve entries:", error);
+          self._sendFailureResponse("Unknown error.", request, callback);
+          return;
+        }
+
+        if (status === 'SUCCESS') {
+          self._sendSuccessResponse({
+            entries: _.invoke(entries, 'toJson')
+          }, request, callback);
+        } else if (status === 'REDIRECT') {
+          self._sendRedirectResponse({
+            redirectNodeInfo: node.toNodeInfo()
+          }, request, callback);
+        }
+      });
+    },
+
+    _onRemoveEntry: function(request, callback) {
+      var self = this;
+
+      var entry;
+      try {
+        entry = Entry.fromJson(request.params.entry);
+      } catch (e) {
+        this._sendFailureResponse(e.message, request, callback);
+        return;
+      }
+      this._localNode.removeEntryIterative(entry, function(status, node, error) {
+        if (error) {
+          console.log("Failed to remove entry:", error);
+          self._sendFailureResponse("Unknown error.", request, callback);
+          return;
+        }
+
+        if (status === 'SUCCESS') {
+          self._sendSuccessResponse({}, request, callback);
+        } else if (status === 'REDIRECT') {
+          self._sendRedirectResponse({
+            redirectNodeInfo: node.toNodeInfo()
+          }, request, callback);
+        }
+      });
+    },
+
+    _onLeavesNetwork: function(request, callback) {
+      var self = this;
+
+      var predecessorNodeInfo = request.params.predecessorNodeInfo;
+      this._nodeFactory.create(predecessorNodeInfo, function(predecessor, error) {
+        if (error) {
+          console.log(error);
+          return;
+        }
+
+        self._localNode.leavesNetwork(predecessor);
+      });
     },
 
     _sendSuccessResponse: function(result, request, callback) {
@@ -2867,7 +3111,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Entry":5,"./ID":9,"./Response":18,"./Utils":21}],18:[function(_dereq_,module,exports){
+},{"./Entry":10,"./ID":14,"./Response":21,"./Utils":24}],21:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -2932,7 +3176,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],19:[function(_dereq_,module,exports){
+},{"./Utils":24}],22:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -3040,7 +3284,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],20:[function(_dereq_,module,exports){
+},{"./Utils":24}],23:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -3192,7 +3436,7 @@
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./Utils":21}],21:[function(_dereq_,module,exports){
+},{"./Utils":24}],24:[function(_dereq_,module,exports){
 (function (global){
 (function() {
   var _ = (typeof window !== "undefined" ? window._ : typeof global !== "undefined" ? global._ : null);
@@ -3287,107 +3531,10 @@
 
   Utils.Set = Set;
 
-  var Queue = function() {
-    this._items = [];
-  };
-
-  Queue.prototype = {
-    enqueue: function(item) {
-      this._items.push(item);
-    },
-
-    dequeue: function() {
-      if (_.isEmpty(this._items)) {
-        return null;
-      }
-      return this._items.shift();
-    },
-
-    first: function() {
-      if (_.isEmpty(this._items)) {
-        return null;
-      }
-      return _.first(this._items);
-    },
-
-    last: function() {
-      if (_.isEmpty(this._items)) {
-        return null;
-      }
-      return _.last(this._items);
-    },
-
-    size: function() {
-      return _.size(this._items);
-    },
-  };
-
-  Utils.Queue = Queue;
-
-  var Cache = function(capacity, cacheOutCallback) {
-    this._cache = {};
-    this._useHistory = [];
-    this._capacity = capacity;
-    this._cacheOutCallback = cacheOutCallback;
-  };
-
-  Cache.prototype = {
-    get: function(key) {
-      if (!_.has(this._cache, key)) {
-        return null;
-      }
-      this._updateUseHistory(key);
-      return this._cache[key];
-    },
-
-    set: function(key, item) {
-      var self = this;
-
-      this._cache[key] = item;
-      this._updateUseHistory(key);
-      if (_.size(this._cache) > this._capacity) {
-        var keysToRemove = _.rest(this._useHistory, this._capacity);
-        this._useHistory = _.first(this._useHistory, this._capacity);
-        _.each(keysToRemove, function(key) {
-          var item = self._cache[key];
-          delete self._cache[key];
-          self._cacheOutCallback(item);
-        });
-      }
-    },
-
-    remove: function(key) {
-      if (!this.has(key)) {
-        return;
-      }
-      this._useHistory = _.reject(this._useHistory, function(k) {
-        return k === key;
-      });
-      delete this._cache[key];
-    },
-
-    has: function(key) {
-      return _.has(this._cache, key);
-    },
-
-    keys: function() {
-      return _.keys(this._cache);
-    },
-
-    _updateUseHistory: function(key) {
-      this._useHistory = _.reject(this._useHistory, function(k) {
-        return k === key;
-      });
-      this._useHistory.unshift(key);
-    }
-  };
-
-  Utils.Cache = Cache;
-
   module.exports = Utils;
 })();
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}]},{},[2])
-(2)
+},{}]},{},[9])
+(9)
 });
