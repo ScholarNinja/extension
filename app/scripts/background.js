@@ -6,6 +6,7 @@ chrome.runtime.onInstalled.addListener(function (details) {
 
 var extractor = require('./extractor');
 var doc = require('./document');
+var hattori = require('./hattori');
 
 chrome.runtime.onConnect.addListener(function(port) {
     if(port.name === 'popup') {
@@ -15,14 +16,21 @@ chrome.runtime.onConnect.addListener(function(port) {
                 doc.find(request.query, port);
             }
         });
-    } else {
+    } else if(port.name === 'content') {
         port.onMessage.addListener(function(request) {
             console.log('Received message from', port.name);
 
             if(request.method === 'POST') {
-                doc.add(request);
-                port.postMessage('OK');
+                // Temporarily disable. Look at https://github.com/ScholarNinja/extension/issues/8
+                // doc.add(request);
+                port.postMessage({service: 'document', results: 'OK'});
             }
+        });
+    } else if(port.name === 'hattori') {
+        port.onMessage.addListener(function(url) {
+            hattori.find(url, function(results) {
+                port.postMessage({service: 'hattori', results: results});
+            });
         });
     }
 });
