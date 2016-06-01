@@ -8,11 +8,13 @@
 
         <!-- build:js scripts/popup.js -->
         <script src="scripts/browserified/popup.js"></script>
+        <script src="newTab.js"></script>
         <!-- endbuild -->
     </head>
     <body>
       <img class="logo" src="images/icon-38.png">
-      <input type="search" placeholder="Search on Scholar Ninja...">
+      <input type="search" id ="search" placeholder="Search on Scholar Ninja...">
+      <button id="checkPage" style="right:10px;position:relative;"> View On New Page </button>
       <div id="results"></div>
       <div id="log"></div>
     </body>
